@@ -42,6 +42,8 @@ public:
 	void CreateLobby();
 
 	void OnCreateLobbyCompleted(FName SessionName, bool bWasSuccessful);
+	
+	void FinishAndCleanup();
 
 	/**
 	 * This function is used to create a lobby with the given settings and returns a result delegate which can be used to determine if the lobby was created successfully or not.
