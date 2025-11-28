@@ -56,17 +56,16 @@ void UEOSCreateEOKLobbyAsync::CreateLobby()
 		NumberOfPublicConnections = 4;
 	}
 
-	// Get EOS subsystem
-	UWorld* World = GEngine->GetCurrentPlayWorld();
-	if (!World)
+	// Get EOS subsystem using cached WorldContextObject
+	if (!CachedWorldContextObject)
 	{
-		UE_LOG(LogTemp, Error, TEXT("EOSKit: CreateLobby FAILED - Cannot get current World"));
-		OnFail.Broadcast(TEXT("Cannot get current World"));
+		UE_LOG(LogTemp, Error, TEXT("EOSKit: CreateLobby FAILED - WorldContextObject is null"));
+		OnFail.Broadcast(TEXT("WorldContextObject is null"));
 		FinishAndCleanup();
 		return;
 	}
 
-	UGameInstance* GameInstance = World->GetGameInstance();
+	UGameInstance* GameInstance = UGameplayStatics::GetGameInstance(CachedWorldContextObject);
 	if (!GameInstance)
 	{
 		UE_LOG(LogTemp, Error, TEXT("EOSKit: CreateLobby FAILED - Cannot get Game Instance"));
@@ -219,6 +218,7 @@ void UEOSCreateEOKLobbyAsync::OnCreateLobbyCompleted(FName SessionName, bool bWa
 }
 
 UEOSCreateEOKLobbyAsync* UEOSCreateEOKLobbyAsync::CreateEOKLobby(
+	UObject* WorldContextObject,
 	TMap<FString, FEOSKitAttribute> SessionSettings,
 	TMap<FString, FEOSKitAttribute> MemberSettings,
 	FName SessionName,
@@ -226,6 +226,7 @@ UEOSCreateEOKLobbyAsync* UEOSCreateEOKLobbyAsync::CreateEOKLobby(
 	FEOSKitCreateLobbySettings ExtraSettings)
 {
 	UEOSCreateEOKLobbyAsync* Ueik_CreateLobbyObject = NewObject<UEOSCreateEOKLobbyAsync>();
+	Ueik_CreateLobbyObject->CachedWorldContextObject = WorldContextObject;
 	Ueik_CreateLobbyObject->NumberOfPublicConnections = NumberOfPublicConnections;
 	Ueik_CreateLobbyObject->SessionSettings = SessionSettings;
 	Ueik_CreateLobbyObject->MemberSettings = MemberSettings;

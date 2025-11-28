@@ -31,6 +31,10 @@ public:
 	bool bDelegateCalled = false;
 	FName VSessionName;
 	
+	// Store the world context object
+	UPROPERTY()
+	TObjectPtr<UObject> CachedWorldContextObject;
+	
 	UPROPERTY(BlueprintAssignable, DisplayName="Success")
 	FCreateEOKLobby_Delegate OnSuccess;
 	
@@ -47,14 +51,16 @@ public:
 
 	/**
 	 * This function is used to create a lobby with the given settings and returns a result delegate which can be used to determine if the lobby was created successfully or not.
+	 * @param WorldContextObject - The world context object (usually 'self' in Blueprint).
 	 * @param SessionSettings - A map of session settings to be used when creating the lobby.
 	 * @param MemberSettings - A map of member settings to be used when creating the lobby.
 	 * @param SessionName - The name to give the session locally.
 	 * @param NumberOfPublicConnections - The number of public connections to be used when creating the lobby.
 	 * @param ExtraSettings - A struct containing extra settings to be used when creating the lobby which is completely optional.
 	 */
-	UFUNCTION(BlueprintCallable, DisplayName="Create EOK Lobby", meta = (BlueprintInternalUseOnly = "true", AutoCreateRefTerm="SessionSettings,MemberSettings"), Category="EOSKit|Lobby")
+	UFUNCTION(BlueprintCallable, DisplayName="Create EOK Lobby", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", AutoCreateRefTerm="SessionSettings,MemberSettings"), Category="EOSKit|Lobby")
 	static UEOSCreateEOKLobbyAsync* CreateEOKLobby(
+		UObject* WorldContextObject,
 		TMap<FString, FEOSKitAttribute> SessionSettings,
 		TMap<FString, FEOSKitAttribute> MemberSettings,
 		FName SessionName,

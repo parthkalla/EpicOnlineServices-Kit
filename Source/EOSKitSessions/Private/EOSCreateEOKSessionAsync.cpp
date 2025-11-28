@@ -138,6 +138,7 @@ void UEOSCreateEOKSessionAsync::CreateSession()
 	UE_LOG(LogTemp, Log, TEXT("  BucketId: %s"), UTF8_TO_TCHAR(CreateModOptions.BucketId));
 	UE_LOG(LogTemp, Log, TEXT("  MaxPlayers: %d"), CreateModOptions.MaxPlayers);
 	UE_LOG(LogTemp, Log, TEXT("  bPresenceEnabled: %s"), CreateModOptions.bPresenceEnabled ? TEXT("true") : TEXT("false"));
+	UE_LOG(LogTemp, Log, TEXT("  bSanctionsEnabled: %s"), CreateModOptions.bSanctionsEnabled ? TEXT("true") : TEXT("false"));
 	
 	EOS_HSessionModification SessionModHandle = nullptr;
 	EOS_EResult CreateModResult = EOS_Sessions_CreateSessionModification(SessionsHandle, &CreateModOptions, &SessionModHandle);
