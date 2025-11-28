@@ -512,18 +512,7 @@ EOS SDK licensing: https://dev.epicgames.com/docs/services
 
 ---
 
-## 🌟 Why Developers Love EOSKit
 
-> *"EOSKit saved us months of development time. The voice chat system just works out of the box!"*  
-> — **Lead Developer**, Indie Studio
-
-> *"After trying multiple EOS plugins, EOSKit is the only one that delivered on its promises. Complete features, excellent docs, and it actually works in production."*  
-> — **Senior Engineer**, AA Studio
-
-> *"The difference between EOSKit and alternatives is night and day. Worth every penny."*  
-> — **Solo Developer**
-
----
 
 ## 📊 Comparison Summary
 
