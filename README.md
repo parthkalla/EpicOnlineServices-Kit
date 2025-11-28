@@ -54,7 +54,7 @@ bEnableAutoLogin=True
 
 ### First Login (Blueprint)
 
-![Login Example](https://via.placeholder.com/800x400/667eea/ffffff?text=Blueprint+Login+Example)
+![Login Example](https://placehold.co/800x400/667eea/ffffff?text=Blueprint+Login+Example)
 
 ```cpp
 // Or in C++
