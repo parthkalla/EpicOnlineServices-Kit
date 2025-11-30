@@ -63,19 +63,10 @@ void UEOSKitSimpleSubsystem::LoginWithDeviceID(const FString& DisplayName, const
 
 	ActiveAsyncNodes.Add(LoginNode);
 
-	LoginNode->OnSuccess.AddLambda([this, Result, LoginNode](const FString& EpicUserId, const FString& ProductUserId, const FString& Error)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("EOSKit: LoginWithDeviceID SUCCESS - ProductUserId: %s"), *ProductUserId);
-		ActiveAsyncNodes.Remove(LoginNode);
-		Result.ExecuteIfBound(true, TEXT(""));
-	});
-
-	LoginNode->OnFail.AddLambda([this, Result, LoginNode](const FString& EpicUserId, const FString& ProductUserId, const FString& Error)
-	{
-		UE_LOG(LogTemp, Error, TEXT("EOSKit: LoginWithDeviceID FAILED - Error: %s"), *Error);
-		ActiveAsyncNodes.Remove(LoginNode);
-		Result.ExecuteIfBound(false, Error);
-	});
+	StoredLoginCallback = Result;
+	StoredAsyncNode = LoginNode;
+	LoginNode->OnSuccess.AddDynamic(this, FName("OnLoginSuccess"));
+	LoginNode->OnFail.AddDynamic(this, FName("OnLoginFail"));
 
 	LoginNode->Activate();
 }
@@ -110,19 +101,10 @@ void UEOSKitSimpleSubsystem::LoginWithAccountPortal(const FEOSKit_Login_Callback
 
 	ActiveAsyncNodes.Add(LoginNode);
 
-	LoginNode->OnSuccess.AddLambda([this, Result, LoginNode](const FString& EpicUserId, const FString& ProductUserId, const FString& Error)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("EOSKit: LoginWithAccountPortal SUCCESS - ProductUserId: %s"), *ProductUserId);
-		ActiveAsyncNodes.Remove(LoginNode);
-		Result.ExecuteIfBound(true, TEXT(""));
-	});
-
-	LoginNode->OnFail.AddLambda([this, Result, LoginNode](const FString& EpicUserId, const FString& ProductUserId, const FString& Error)
-	{
-		UE_LOG(LogTemp, Error, TEXT("EOSKit: LoginWithAccountPortal FAILED - Error: %s"), *Error);
-		ActiveAsyncNodes.Remove(LoginNode);
-		Result.ExecuteIfBound(false, Error);
-	});
+	StoredLoginCallback = Result;
+	StoredAsyncNode = LoginNode;
+	LoginNode->OnSuccess.AddDynamic(this, FName("OnLoginSuccess"));
+	LoginNode->OnFail.AddDynamic(this, FName("OnLoginFail"));
 
 	LoginNode->Activate();
 }
@@ -157,19 +139,10 @@ void UEOSKitSimpleSubsystem::LoginWithPersistentAuth(const FEOSKit_Login_Callbac
 
 	ActiveAsyncNodes.Add(LoginNode);
 
-	LoginNode->OnSuccess.AddLambda([this, Result, LoginNode](const FString& EpicUserId, const FString& ProductUserId, const FString& Error)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("EOSKit: LoginWithPersistentAuth SUCCESS - ProductUserId: %s"), *ProductUserId);
-		ActiveAsyncNodes.Remove(LoginNode);
-		Result.ExecuteIfBound(true, TEXT(""));
-	});
-
-	LoginNode->OnFail.AddLambda([this, Result, LoginNode](const FString& EpicUserId, const FString& ProductUserId, const FString& Error)
-	{
-		UE_LOG(LogTemp, Error, TEXT("EOSKit: LoginWithPersistentAuth FAILED - Error: %s"), *Error);
-		ActiveAsyncNodes.Remove(LoginNode);
-		Result.ExecuteIfBound(false, Error);
-	});
+	StoredLoginCallback = Result;
+	StoredAsyncNode = LoginNode;
+	LoginNode->OnSuccess.AddDynamic(this, FName("OnLoginSuccess"));
+	LoginNode->OnFail.AddDynamic(this, FName("OnLoginFail"));
 
 	LoginNode->Activate();
 }
@@ -178,18 +151,10 @@ void UEOSKitSimpleSubsystem::Logout(const FEOSKit_Logout_Callback& Result)
 {
 	UE_LOG(LogTemp, Warning, TEXT("EOSKit: Logout called"));
 	
-	// For now, just clear the ProductUserId and return success
+	// For now, just return success
 	// Full logout implementation would require EOS Auth logout
-	UGameInstance* GameInstance = GetGameInstance();
-	if (GameInstance)
-	{
-		UEOSKitSubsystem* EOSKitSubsystem = GameInstance->GetSubsystem<UEOSKitSubsystem>();
-		if (EOSKitSubsystem)
-		{
-			EOSKitSubsystem->SetProductUserId(nullptr);
-			UE_LOG(LogTemp, Warning, TEXT("EOSKit: Logout - ProductUserId cleared"));
-		}
-	}
+	// Note: ProductUserId is managed by the OnlineSubsystem, not directly by EOSKitSubsystem
+	UE_LOG(LogTemp, Warning, TEXT("EOSKit: Logout - Note: Full logout requires EOS Auth logout"));
 
 	Result.ExecuteIfBound(true);
 }
@@ -281,19 +246,11 @@ void UEOSKitSimpleSubsystem::CreateEOSSession(
 
 	ActiveAsyncNodes.Add(CreateSessionNode);
 
-	CreateSessionNode->OnSuccess.AddLambda([this, Result, SessionName, CreateSessionNode](const FString& SessionId)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("EOSKit: CreateEOSSession SUCCESS - SessionId: %s"), *SessionId);
-		ActiveAsyncNodes.Remove(CreateSessionNode);
-		Result.ExecuteIfBound(true, FName(*SessionName));
-	});
-
-	CreateSessionNode->OnFail.AddLambda([this, Result, SessionName, CreateSessionNode](const FString& Error)
-	{
-		UE_LOG(LogTemp, Error, TEXT("EOSKit: CreateEOSSession FAILED - Error: %s"), *Error);
-		ActiveAsyncNodes.Remove(CreateSessionNode);
-		Result.ExecuteIfBound(false, FName(*SessionName));
-	});
+	StoredCreateSessionCallback = Result;
+	StoredSessionName = SessionName;
+	StoredAsyncNode = CreateSessionNode;
+	CreateSessionNode->OnSuccess.AddDynamic(this, FName("OnCreateSessionSuccess"));
+	CreateSessionNode->OnFail.AddDynamic(this, FName("OnCreateSessionFail"));
 
 	CreateSessionNode->Activate();
 }
@@ -363,19 +320,11 @@ void UEOSKitSimpleSubsystem::CreateEOSLobby(
 
 	ActiveAsyncNodes.Add(CreateLobbyNode);
 
-	CreateLobbyNode->OnSuccess.AddLambda([this, Result, SessionName, CreateLobbyNode](const FString& LobbyId)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("EOSKit: CreateEOSLobby SUCCESS - LobbyId: %s"), *LobbyId);
-		ActiveAsyncNodes.Remove(CreateLobbyNode);
-		Result.ExecuteIfBound(true, FName(*SessionName));
-	});
-
-	CreateLobbyNode->OnFail.AddLambda([this, Result, SessionName, CreateLobbyNode](const FString& Error)
-	{
-		UE_LOG(LogTemp, Error, TEXT("EOSKit: CreateEOSLobby FAILED - Error: %s"), *Error);
-		ActiveAsyncNodes.Remove(CreateLobbyNode);
-		Result.ExecuteIfBound(false, FName(*SessionName));
-	});
+	StoredCreateLobbyCallback = Result;
+	StoredSessionName = SessionName;
+	StoredAsyncNode = CreateLobbyNode;
+	CreateLobbyNode->OnSuccess.AddDynamic(this, FName("OnCreateLobbySuccess"));
+	CreateLobbyNode->OnFail.AddDynamic(this, FName("OnCreateLobbyFail"));
 
 	CreateLobbyNode->Activate();
 }
@@ -429,10 +378,8 @@ void UEOSKitSimpleSubsystem::DestroyEOSSession(const FName& SessionName, const F
 	{
 		if (const IOnlineSessionPtr SessionPtr = Subsystem->GetSessionInterface())
 		{
-			SessionPtr->OnDestroySessionCompleteDelegates.AddLambda([Result](FName SessionName, bool bWasSuccessful)
-			{
-				Result.ExecuteIfBound(bWasSuccessful);
-			});
+			StoredDestroySessionCallback = Result;
+			SessionPtr->OnDestroySessionCompleteDelegates.AddUObject(this, &UEOSKitSimpleSubsystem::OnDestroySessionComplete);
 			SessionPtr->DestroySession(SessionName);
 			return;
 		}
@@ -524,7 +471,15 @@ bool UEOSKitSimpleSubsystem::EndSession(const FName& SessionName)
 
 bool UEOSKitSimpleSubsystem::ShowFriendUserInterface()
 {
-	return UEOSKitGameInstanceSubsystem::ShowFriendsInterface();
+	UGameInstance* GameInstance = GetGameInstance();
+	if (GameInstance)
+	{
+		if (UEOSKitGameInstanceSubsystem* GameInstanceSubsystem = GameInstance->GetSubsystem<UEOSKitGameInstanceSubsystem>())
+		{
+			return GameInstanceSubsystem->ShowFriendsInterface();
+		}
+	}
+	return false;
 }
 
 // ========================================
@@ -539,5 +494,74 @@ FString UEOSKitSimpleSubsystem::GenerateSessionCode(int32 CodeLength) const
 bool UEOSKitSimpleSubsystem::IsEOSKitInitialized() const
 {
 	return UEOSKitGameInstanceSubsystem::IsEOSKitInitialized();
+}
+
+// ========================================
+// Helper Functions for Delegate Callbacks
+// ========================================
+
+void UEOSKitSimpleSubsystem::OnLoginSuccess(const FString& EpicUserId, const FString& ProductUserId, const FString& Error)
+{
+	UE_LOG(LogTemp, Warning, TEXT("EOSKit: Login SUCCESS - ProductUserId: %s"), *ProductUserId);
+	if (StoredAsyncNode)
+	{
+		ActiveAsyncNodes.Remove(StoredAsyncNode);
+	}
+	StoredLoginCallback.ExecuteIfBound(true, TEXT(""));
+}
+
+void UEOSKitSimpleSubsystem::OnLoginFail(const FString& EpicUserId, const FString& ProductUserId, const FString& Error)
+{
+	UE_LOG(LogTemp, Error, TEXT("EOSKit: Login FAILED - Error: %s"), *Error);
+	if (StoredAsyncNode)
+	{
+		ActiveAsyncNodes.Remove(StoredAsyncNode);
+	}
+	StoredLoginCallback.ExecuteIfBound(false, Error);
+}
+
+void UEOSKitSimpleSubsystem::OnCreateSessionSuccess(const FString& SessionId)
+{
+	UE_LOG(LogTemp, Warning, TEXT("EOSKit: CreateEOSSession SUCCESS - SessionId: %s"), *SessionId);
+	if (StoredAsyncNode)
+	{
+		ActiveAsyncNodes.Remove(StoredAsyncNode);
+	}
+	StoredCreateSessionCallback.ExecuteIfBound(true, FName(*StoredSessionName));
+}
+
+void UEOSKitSimpleSubsystem::OnCreateSessionFail(const FString& Error)
+{
+	UE_LOG(LogTemp, Error, TEXT("EOSKit: CreateEOSSession FAILED - Error: %s"), *Error);
+	if (StoredAsyncNode)
+	{
+		ActiveAsyncNodes.Remove(StoredAsyncNode);
+	}
+	StoredCreateSessionCallback.ExecuteIfBound(false, FName(*StoredSessionName));
+}
+
+void UEOSKitSimpleSubsystem::OnCreateLobbySuccess(const FString& LobbyId)
+{
+	UE_LOG(LogTemp, Warning, TEXT("EOSKit: CreateEOSLobby SUCCESS - LobbyId: %s"), *LobbyId);
+	if (StoredAsyncNode)
+	{
+		ActiveAsyncNodes.Remove(StoredAsyncNode);
+	}
+	StoredCreateLobbyCallback.ExecuteIfBound(true, FName(*StoredSessionName));
+}
+
+void UEOSKitSimpleSubsystem::OnCreateLobbyFail(const FString& Error)
+{
+	UE_LOG(LogTemp, Error, TEXT("EOSKit: CreateEOSLobby FAILED - Error: %s"), *Error);
+	if (StoredAsyncNode)
+	{
+		ActiveAsyncNodes.Remove(StoredAsyncNode);
+	}
+	StoredCreateLobbyCallback.ExecuteIfBound(false, FName(*StoredSessionName));
+}
+
+void UEOSKitSimpleSubsystem::OnDestroySessionComplete(FName SessionName, bool bWasSuccessful)
+{
+	StoredDestroySessionCallback.ExecuteIfBound(bWasSuccessful);
 }
 

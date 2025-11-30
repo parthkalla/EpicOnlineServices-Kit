@@ -2,6 +2,7 @@
 
 #include "EOSSetPlayerDataAsync.h"
 #include "EOSKitSubsystem.h"
+#include "EOSKitLoginHelpers.h"
 #include "Kismet/GameplayStatics.h"
 #if WITH_EOS_SDK
 #include "Windows/AllowWindowsPlatformTypes.h"
@@ -63,7 +64,7 @@ void UEOSSetPlayerDataAsync::Activate()
 	}
 
 	// Get Product User ID from subsystem
-	FString ProductUserIdString = EOSSubsystem->GetProductUserIdString();
+	FString ProductUserIdString = UEOSKitLoginHelpers::GetProductUserIdString(WorldContextObject);
 	if (ProductUserIdString.IsEmpty())
 	{
 		OnFailure.Broadcast();

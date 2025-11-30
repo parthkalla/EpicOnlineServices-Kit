@@ -8,6 +8,14 @@
 #include "EOSKitStatsTypes.h"
 #include "EOSKitStatsSubsystem.generated.h"
 
+#if WITH_EOS_SDK
+#include "Windows/AllowWindowsPlatformTypes.h"
+#include "Windows/PreWindowsApi.h"
+#include "eos_stats.h"
+#include "Windows/PostWindowsApi.h"
+#include "Windows/HideWindowsPlatformTypes.h"
+#endif
+
 class UEOSKitSubsystem;
 
 DECLARE_DYNAMIC_DELEGATE_ThreeParams(FEOSKitOnQueryStatsComplete, EEOSResult, Result, const FEOSKitProductUserId&, LocalUserId, const FEOSKitProductUserId&, TargetUserId);

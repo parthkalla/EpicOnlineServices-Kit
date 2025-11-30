@@ -3,7 +3,15 @@
 #include "EOS_SessionSearch_Find.h"
 #include "EOSKitSubsystem.h"
 #include "Kismet/GameplayStatics.h"
+#if WITH_EOS_SDK
+#include "Windows/AllowWindowsPlatformTypes.h"
+#include "Windows/PreWindowsApi.h"
+#include "eos_platform.h"
 #include "eos_sessions.h"
+#include "eos_sessions_types.h"
+#include "Windows/PostWindowsApi.h"
+#include "Windows/HideWindowsPlatformTypes.h"
+#endif
 #include "Async/Async.h"
 
 UEOS_SessionSearch_Find* UEOS_SessionSearch_Find::EOS_SessionSearch_Find(const FEOSKitHSessionSearch& SessionSearchHandle, const FEOSKitProductUserId& LocalUserId)
@@ -91,9 +99,12 @@ void UEOS_SessionSearch_Find::Activate()
 	SessionSearchFindOptions.ApiVersion = EOS_SESSIONSEARCH_FIND_API_LATEST;
 	SessionSearchFindOptions.LocalUserId = LocalUserIdEOS;
 
-	EOS_SessionSearch_Find(SessionSearchHandleEOS, &SessionSearchFindOptions, this, &UEOS_SessionSearch_Find::OnSessionSearch_FindCallback);
+#if WITH_EOS_SDK
+	::EOS_SessionSearch_Find(SessionSearchHandleEOS, &SessionSearchFindOptions, this, &UEOS_SessionSearch_Find::OnSessionSearch_FindCallback);
+#endif
 }
 
+#if WITH_EOS_SDK
 void UEOS_SessionSearch_Find::OnSessionSearch_FindCallback(const EOS_SessionSearch_FindCallbackInfo* Data)
 {
 	if (UEOS_SessionSearch_Find* Node = static_cast<UEOS_SessionSearch_Find*>(Data->ClientData))
@@ -110,4 +121,5 @@ void UEOS_SessionSearch_Find::OnSessionSearch_FindCallback(const EOS_SessionSear
 #endif
 	}
 }
+#endif // WITH_EOS_SDK
 

@@ -6,6 +6,12 @@
 #include "Kismet/BlueprintAsyncActionBase.h"
 #include "EOSSendSupportTicketAsync.generated.h"
 
+// Forward declarations
+class IHttpRequest;
+class IHttpResponse;
+typedef TSharedPtr<IHttpRequest, ESPMode::ThreadSafe> FHttpRequestPtr;
+typedef TSharedPtr<IHttpResponse, ESPMode::ThreadSafe> FHttpResponsePtr;
+
 /**
  * Support ticket subject enumeration
  */

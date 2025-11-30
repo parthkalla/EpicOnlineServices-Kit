@@ -605,7 +605,7 @@ TEnumAsByte<EEOSKitLoginStatus> UEOSKitConnectSubsystem::GetLoginStatus(const FS
 	UEOSKitSubsystem* EOSKitSubsystem = GetEOSKitSubsystem();
 	if (!EOSKitSubsystem || !EOSKitSubsystem->GetPlatformHandle())
 	{
-		return EKLS_NotLoggedIn;
+		return EEOSKitLoginStatus::EKLS_NotLoggedIn;
 	}
 
 	EOS_HPlatform PlatformHandle = EOSKitSubsystem->GetPlatformHandle();
@@ -613,13 +613,13 @@ TEnumAsByte<EEOSKitLoginStatus> UEOSKitConnectSubsystem::GetLoginStatus(const FS
 	
 	if (!ConnectHandle)
 	{
-		return EKLS_NotLoggedIn;
+		return EEOSKitLoginStatus::EKLS_NotLoggedIn;
 	}
 
 	EOS_ProductUserId UserId = EOS_ProductUserId_FromString(TCHAR_TO_UTF8(*ProductUserId));
 	if (!UserId || !EOS_ProductUserId_IsValid(UserId))
 	{
-		return EKLS_NotLoggedIn;
+		return EEOSKitLoginStatus::EKLS_NotLoggedIn;
 	}
 
 	EOS_ELoginStatus Status = EOS_Connect_GetLoginStatus(ConnectHandle, UserId);

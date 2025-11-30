@@ -11,7 +11,15 @@
 #include "Interfaces/OnlineUserCloudInterface.h"
 #include "Interfaces/OnlineTitleFileInterface.h"
 #include "Interfaces/OnlineExternalUIInterface.h"
+// Try to include OnlineStoreV2Interface - if not available, the code using it will need to be conditionally compiled
+// In UE 5.5, this interface may have been moved or renamed
+#if __has_include("Interfaces/OnlineStoreV2Interface.h")
 #include "Interfaces/OnlineStoreV2Interface.h"
+#else
+// Forward declare if header not available
+class IOnlineStoreV2;
+typedef TSharedPtr<class IOnlineStoreV2, ESPMode::ThreadSafe> IOnlineStoreV2Ptr;
+#endif
 #include "Interfaces/OnlinePurchaseInterface.h"
 #include "OnlineSubsystemEOS.h"
 #include "IEOSSDKManager.h"

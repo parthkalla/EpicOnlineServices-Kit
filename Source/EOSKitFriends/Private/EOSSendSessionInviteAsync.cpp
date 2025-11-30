@@ -2,6 +2,7 @@
 
 #include "EOSSendSessionInviteAsync.h"
 #include "EOSKitSubsystem.h"
+#include "EOSKitLoginHelpers.h"
 #include "EOS_SessionsSubsystem.h"
 #include "Kismet/GameplayStatics.h"
 #include "eos_sessions.h"
@@ -57,7 +58,7 @@ void UEOSSendSessionInviteAsync::Activate()
 	}
 
 	// Get local user Product User ID
-	FString ProductUserIdString = EOSSubsystem->GetProductUserIdString();
+	FString ProductUserIdString = UEOSKitLoginHelpers::GetProductUserIdString(WorldContextObject);
 	if (ProductUserIdString.IsEmpty())
 	{
 		OnFailure.Broadcast(TEXT("User not logged in"));

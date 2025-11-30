@@ -6,6 +6,12 @@
 #include "Kismet/BlueprintAsyncActionBase.h"
 #include "EOSDeleteTicketDataAsync.generated.h"
 
+// Forward declarations
+class IHttpRequest;
+class IHttpResponse;
+typedef TSharedPtr<IHttpRequest, ESPMode::ThreadSafe> FHttpRequestPtr;
+typedef TSharedPtr<IHttpResponse, ESPMode::ThreadSafe> FHttpResponsePtr;
+
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnDeleteTicketDataComplete,
 	const FString&, ResponseStr,
 	int32, HTTPResponseCode,

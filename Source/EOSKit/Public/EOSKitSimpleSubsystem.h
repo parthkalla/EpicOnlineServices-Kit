@@ -129,11 +129,11 @@ public:
 	UFUNCTION(BlueprintCallable, DisplayName = "Create EOS Session", Category = "EOSKit|Sessions", meta = (AutoCreateRefTerm = "CustomSettings"))
 	void CreateEOSSession(
 		const TMap<FString, FString>& CustomSettings,
-		const FString& SessionName = TEXT("Modified_EOS_Session"),
-		bool bIsDedicatedServer = false,
-		bool bIsLan = false,
-		int32 NumberOfPublicConnections = 4,
-		EEOSKitRegion Region = EEOSKitRegion::NoSelection,
+		const FString& SessionName,
+		bool bIsDedicatedServer,
+		bool bIsLan,
+		int32 NumberOfPublicConnections,
+		EEOSKitRegion Region,
 		const FEOSKit_CreateSession_Callback& Result
 	);
 
@@ -154,15 +154,15 @@ public:
 	UFUNCTION(BlueprintCallable, DisplayName = "Create EOS Lobby", Category = "EOSKit|Lobbies", meta = (AutoCreateRefTerm = "CustomSettings"))
 	void CreateEOSLobby(
 		const TMap<FString, FString>& CustomSettings,
-		const FString& SessionName = TEXT("Modified_EOS_Lobby"),
-		bool bUseVoiceChat = false,
-		bool bUsePresence = true,
-		bool bAllowInvites = true,
-		bool bAdvertise = true,
-		bool bAllowJoinInProgress = true,
-		bool bIsLan = false,
-		int32 NumberOfPublicConnections = 4,
-		int32 NumberOfPrivateConnections = 0,
+		const FString& SessionName,
+		bool bUseVoiceChat,
+		bool bUsePresence,
+		bool bAllowInvites,
+		bool bAdvertise,
+		bool bAllowJoinInProgress,
+		bool bIsLan,
+		int32 NumberOfPublicConnections,
+		int32 NumberOfPrivateConnections,
 		const FEOSKit_CreateLobby_Callback& Result
 	);
 
@@ -176,8 +176,8 @@ public:
 	UFUNCTION(BlueprintCallable, DisplayName = "Find EOS Session", Category = "EOSKit|Sessions", meta = (AutoCreateRefTerm = "SearchSettings"))
 	void FindEOSSession(
 		const TMap<FString, FString>& SearchSettings,
-		EEOSKitMatchType MatchType = EEOSKitMatchType::LobbySession,
-		EEOSKitRegion RegionToSearch = EEOSKitRegion::NoSelection,
+		EEOSKitMatchType MatchType,
+		EEOSKitRegion RegionToSearch,
 		const FEOSKit_FindSession_Callback& Result
 	);
 
@@ -200,7 +200,7 @@ public:
 	void JoinEOSSession(
 		const FName& SessionName,
 		const FString& SessionId,
-		bool bIsDedicatedServerSession = false,
+		bool bIsDedicatedServerSession,
 		const FEOSKit_JoinSession_Callback& Result
 	);
 
@@ -276,5 +276,35 @@ private:
 	/** Store active async nodes to prevent garbage collection */
 	UPROPERTY()
 	TArray<TObjectPtr<UObject>> ActiveAsyncNodes;
+
+	// Helper functions for delegate callbacks
+	UFUNCTION()
+	void OnLoginSuccess(const FString& EpicUserId, const FString& ProductUserId, const FString& Error);
+	
+	UFUNCTION()
+	void OnLoginFail(const FString& EpicUserId, const FString& ProductUserId, const FString& Error);
+	
+	UFUNCTION()
+	void OnCreateSessionSuccess(const FString& SessionId);
+	
+	UFUNCTION()
+	void OnCreateSessionFail(const FString& Error);
+	
+	UFUNCTION()
+	void OnCreateLobbySuccess(const FString& LobbyId);
+	
+	UFUNCTION()
+	void OnCreateLobbyFail(const FString& Error);
+	
+	UFUNCTION()
+	void OnDestroySessionComplete(FName SessionName, bool bWasSuccessful);
+
+	// Stored callbacks and nodes for helper functions
+	FEOSKit_Login_Callback StoredLoginCallback;
+	FEOSKit_CreateSession_Callback StoredCreateSessionCallback;
+	FEOSKit_CreateLobby_Callback StoredCreateLobbyCallback;
+	FEOSKit_DestroySession_Callback StoredDestroySessionCallback;
+	FString StoredSessionName;
+	UObject* StoredAsyncNode = nullptr;
 };
 

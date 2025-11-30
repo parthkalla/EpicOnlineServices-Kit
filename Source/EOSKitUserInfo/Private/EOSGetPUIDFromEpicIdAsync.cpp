@@ -2,6 +2,7 @@
 
 #include "EOSGetPUIDFromEpicIdAsync.h"
 #include "EOSKitSubsystem.h"
+#include "EOSKitLoginHelpers.h"
 #include "Kismet/GameplayStatics.h"
 #if WITH_EOS_SDK
 #include "Windows/AllowWindowsPlatformTypes.h"
@@ -47,7 +48,7 @@ void UEOSGetPUIDFromEpicIdAsync::Activate()
 	}
 
 	// Get Product User ID from subsystem
-	FString ProductUserIdString = EOSSubsystem->GetProductUserIdString();
+	FString ProductUserIdString = UEOSKitLoginHelpers::GetProductUserIdString(WorldContextObject);
 	if (ProductUserIdString.IsEmpty())
 	{
 		OnFailure.Broadcast(TArray<FEOSKitProductUserIdAndEpicId>());
@@ -124,7 +125,7 @@ void EOS_CALL UEOSGetPUIDFromEpicIdAsync::OnQueryExternalAccountMappingsComplete
 				EOS_HConnect ConnectHandle = EOS_Platform_GetConnectInterface(EOSSubsystem->GetPlatformHandle());
 				if (ConnectHandle)
 				{
-					FString ProductUserIdString = EOSSubsystem->GetProductUserIdString();
+					FString ProductUserIdString = UEOSKitLoginHelpers::GetProductUserIdString(Self->WorldContextObject);
 					EOS_ProductUserId LocalUserId = EOS_ProductUserId_FromString(TCHAR_TO_UTF8(*ProductUserIdString));
 
 					for (const FString& EpicAccountId : Self->TargetEpicAccountIdStrings)

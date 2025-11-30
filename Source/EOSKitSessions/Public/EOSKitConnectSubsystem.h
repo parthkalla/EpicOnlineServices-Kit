@@ -24,7 +24,7 @@ DECLARE_DYNAMIC_DELEGATE_TwoParams(FEOSKitOnLoginStatusChanged, FString, Product
  * Login status enum
  */
 UENUM(BlueprintType)
-enum EEOSKitLoginStatus
+enum class EEOSKitLoginStatus : uint8
 {
 	EKLS_NotLoggedIn UMETA(DisplayName = "Not Logged In"),
 	EKLS_UsingLocalProfile UMETA(DisplayName = "Using Local Profile"),

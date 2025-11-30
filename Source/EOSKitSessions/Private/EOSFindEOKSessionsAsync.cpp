@@ -220,7 +220,7 @@ void UEOSFindEOKSessionsAsync::FindSession()
 	FindOptions.ApiVersion = EOS_SESSIONSEARCH_FIND_API_LATEST;
 	FindOptions.LocalUserId = LocalUserId;
 	
-	EOS_SessionSearch_Find(SearchHandle, &FindOptions, CallbackContext,
+	::EOS_SessionSearch_Find(SearchHandle, &FindOptions, CallbackContext,
 		[](const EOS_SessionSearch_FindCallbackInfo* Data)
 		{
 			FSessionFindContext* Context = static_cast<FSessionFindContext*>(Data->ClientData);

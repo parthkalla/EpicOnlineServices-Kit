@@ -44,7 +44,7 @@ public:
 private:
 	virtual void Activate() override;
 
-	void OnGetPlatformAuthTokenComplete(int32 LocalUserNum, bool bWasSuccessful, const FExternalAuthToken& ExternalAuthToken);
+	void OnGetPlatformAuthTokenComplete(int32 InLocalUserNum, bool bWasSuccessful, const FExternalAuthToken& ExternalAuthToken);
 
 	UPROPERTY()
 	UObject* WorldContextObject;

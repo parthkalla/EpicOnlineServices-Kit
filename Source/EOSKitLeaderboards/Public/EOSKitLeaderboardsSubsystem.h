@@ -8,6 +8,14 @@
 #include "EOSKitLeaderboardsTypes.h"
 #include "EOSKitLeaderboardsSubsystem.generated.h"
 
+#if WITH_EOS_SDK
+#include "Windows/AllowWindowsPlatformTypes.h"
+#include "Windows/PreWindowsApi.h"
+#include "eos_leaderboards.h"
+#include "Windows/PostWindowsApi.h"
+#include "Windows/HideWindowsPlatformTypes.h"
+#endif
+
 class UEOSKitSubsystem;
 
 DECLARE_DYNAMIC_DELEGATE_OneParam(FEOSKitOnQueryLeaderboardDefinitionsComplete, EEOSResult, Result);

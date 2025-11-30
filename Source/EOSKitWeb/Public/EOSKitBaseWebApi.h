@@ -6,6 +6,12 @@
 #include "Kismet/BlueprintAsyncActionBase.h"
 #include "EOSKitBaseWebApi.generated.h"
 
+// Forward declarations
+class IHttpRequest;
+class IHttpResponse;
+typedef TSharedPtr<IHttpRequest, ESPMode::ThreadSafe> FHttpRequestPtr;
+typedef TSharedPtr<IHttpResponse, ESPMode::ThreadSafe> FHttpResponsePtr;
+
 /**
  * Base response structure for Web API calls
  */

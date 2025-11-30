@@ -66,22 +66,20 @@ void UEOSGetPlatformAuthTokenAsync::Activate()
 	// Request the auth token from the platform
 	#if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 2
 	// UE 5.2+ requires TokenType parameter
-	if (!TokenType.IsEmpty())
+	FString TokenTypeToUse = TokenType;
+	if (TokenTypeToUse.IsEmpty())
 	{
-		PlatformIdentity->GetLinkedAccountAuthToken(LocalUserNum, TokenType, Delegate);
+		// Default to "Session" for Steam
+		TokenTypeToUse = PlatformOSS->GetSubsystemName() == TEXT("Steam") ? TEXT("Session") : TEXT("");
+	}
+	
+	if (!TokenTypeToUse.IsEmpty())
+	{
+		PlatformIdentity->GetLinkedAccountAuthToken(LocalUserNum, TokenTypeToUse, Delegate);
 	}
 	else
 	{
-		// Default to "Session" for Steam
-		FString DefaultTokenType = PlatformOSS->GetSubsystemName() == TEXT("Steam") ? TEXT("Session") : TEXT("");
-		if (!DefaultTokenType.IsEmpty())
-		{
-			PlatformIdentity->GetLinkedAccountAuthToken(LocalUserNum, DefaultTokenType, Delegate);
-		}
-		else
-		{
-			PlatformIdentity->GetLinkedAccountAuthToken(LocalUserNum, Delegate);
-		}
+		PlatformIdentity->GetLinkedAccountAuthToken(LocalUserNum, Delegate);
 	}
 	#else
 	// UE 5.1 and earlier
@@ -90,7 +88,7 @@ void UEOSGetPlatformAuthTokenAsync::Activate()
 }
 
 void UEOSGetPlatformAuthTokenAsync::OnGetPlatformAuthTokenComplete(
-	int32 LocalUserNum,
+	int32 InLocalUserNum,
 	bool bWasSuccessful,
 	const FExternalAuthToken& ExternalAuthToken)
 {

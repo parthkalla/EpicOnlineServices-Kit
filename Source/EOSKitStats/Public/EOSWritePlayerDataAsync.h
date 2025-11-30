@@ -19,8 +19,16 @@
 #include "CoreMinimal.h"
 #include "Kismet/BlueprintAsyncActionBase.h"
 #include "EOSKitTypes.h"
-#include "eos_playerdatastorage.h"
 #include "EOSWritePlayerDataAsync.generated.h"
+
+#if WITH_EOS_SDK
+#include "Windows/AllowWindowsPlatformTypes.h"
+#include "Windows/PreWindowsApi.h"
+#include "eos_playerdatastorage.h"
+#include "eos_playerdatastorage_types.h"
+#include "Windows/PostWindowsApi.h"
+#include "Windows/HideWindowsPlatformTypes.h"
+#endif
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnWritePlayerDataCallback, const FString&, ErrorMessage);
 

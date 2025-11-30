@@ -6,6 +6,14 @@
 #include "Kismet/BlueprintAsyncActionBase.h"
 #include "EOSSetPlayerDataAsync.generated.h"
 
+#if WITH_EOS_SDK
+#include "Windows/AllowWindowsPlatformTypes.h"
+#include "Windows/PreWindowsApi.h"
+#include "eos_playerdatastorage_types.h"
+#include "Windows/PostWindowsApi.h"
+#include "Windows/HideWindowsPlatformTypes.h"
+#endif
+
 /**
  * Delegate for set player data completion
  */
