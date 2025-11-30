@@ -16,7 +16,8 @@ public class EOSKitStats : ModuleRules
 			"EOSSDK",
 			"EOSShared",
 			"EOSKit",
-			"EOSKitAuth"
+			"EOSKitAuth",
+			"EOSKitShared"
 		});
 		
 		PrivateDependencyModuleNames.AddRange(new string[]

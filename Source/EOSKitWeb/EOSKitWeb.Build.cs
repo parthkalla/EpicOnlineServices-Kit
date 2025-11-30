@@ -12,10 +12,15 @@ public class EOSKitWeb : ModuleRules
 			new string[]
 			{
 				"Core",
+				"CoreUObject",
+				"Engine",
 				"HTTP",
 				"Json",
 				"JsonUtilities",
-				"EOSSDK"
+				"EOSSDK",
+				"EOSShared",
+				"EOSKit",
+				"EOSKitShared"
 			}
 		);
 			
@@ -23,13 +28,9 @@ public class EOSKitWeb : ModuleRules
 		PrivateDependencyModuleNames.AddRange(
 			new string[]
 			{
-				"CoreUObject",
-				"Engine",
 				"Slate",
 				"SlateCore",
-				"Projects",
-				"EOSShared",
-				"EOSKit" // Dependency for Subsystem/Settings
+				"Projects"
 			}
 		);
 	}

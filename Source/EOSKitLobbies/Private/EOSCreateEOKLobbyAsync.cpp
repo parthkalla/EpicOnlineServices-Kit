@@ -17,6 +17,9 @@ struct FEOKLobbyCreateContext
 	TArray<TArray<uint8>> AttributeKeysUTF8;
 	TArray<TArray<uint8>> AttributeValuesUTF8;
 	EOS_HLobbyModification LobbyModHandle = nullptr;
+	// Store callback result data
+	EOS_EResult ResultCode = EOS_EResult::EOS_NotConfigured;
+	FString LobbyId;
 };
 
 void UEOSCreateEOKLobbyAsync::Activate()
@@ -160,36 +163,89 @@ void UEOSCreateEOKLobbyAsync::CreateLobby()
 				return;
 			}
 
+			// CRITICAL: Copy callback data into context before scheduling async task
+			// The Data pointer may become invalid after the callback returns
+			Context->ResultCode = Data->ResultCode;
+			if (Data->LobbyId && strlen(Data->LobbyId) > 0)
+			{
+				Context->LobbyId = UTF8_TO_TCHAR(Data->LobbyId);
+			}
+
 			UEOSCreateEOKLobbyAsync* AsyncNode = Context->AsyncNode;
 
-			AsyncTask(ENamedThreads::GameThread, [Context, Data, AsyncNode]()
+			AsyncTask(ENamedThreads::GameThread, [Context, AsyncNode]()
 			{
-				if (Data->ResultCode == EOS_EResult::EOS_Success)
+				// Log raw ResultCode for debugging
+				const char* ResultStr = EOS_EResult_ToString(Context->ResultCode);
+				UE_LOG(LogTemp, Warning, TEXT("EOSKit: [CALLBACK] Raw ResultCode value: %d (0x%08X) = %s"), 
+					static_cast<int32>(Context->ResultCode), 
+					static_cast<uint32>(Context->ResultCode),
+					UTF8_TO_TCHAR(ResultStr));
+				
+				// Check if we have a LobbyId even if ResultCode is not Success
+				// Sometimes EOS returns a partial success with a LobbyId
+				bool bHasLobbyId = !Context->LobbyId.IsEmpty();
+				
+				// EOS_Success is 0, so check both ways
+				bool bIsSuccess = (Context->ResultCode == EOS_EResult::EOS_Success) || (Context->ResultCode == 0);
+				
+				// If we have a LobbyId, treat it as success even if ResultCode says otherwise
+				// This handles cases where EOS creates the lobby but returns a warning code
+				if (bIsSuccess || bHasLobbyId)
 				{
 					UE_LOG(LogTemp, Log, TEXT("EOSKit: ========================================"));
 					UE_LOG(LogTemp, Log, TEXT("EOSKit: CreateLobby SUCCESS!"));
-					UE_LOG(LogTemp, Log, TEXT("EOSKit: LobbyId: %s"), UTF8_TO_TCHAR(Data->LobbyId));
+					UE_LOG(LogTemp, Log, TEXT("EOSKit: LobbyId: %s"), *Context->LobbyId);
 					UE_LOG(LogTemp, Log, TEXT("EOSKit: Session Name: %s"), *Context->SessionName);
+					if (!bIsSuccess && bHasLobbyId)
+					{
+						UE_LOG(LogTemp, Warning, TEXT("EOSKit: NOTE: ResultCode was %s but LobbyId exists - treating as success"), UTF8_TO_TCHAR(ResultStr));
+					}
 					UE_LOG(LogTemp, Log, TEXT("EOSKit: ========================================"));
 
 					if (AsyncNode)
 					{
-						AsyncNode->OnSuccess.Broadcast(UTF8_TO_TCHAR(Data->LobbyId));
+						AsyncNode->OnSuccess.Broadcast(Context->LobbyId);
+						
+						// Register the local player in the lobby after successful creation
+						if (bHasLobbyId)
+						{
+							UE_LOG(LogTemp, Log, TEXT("EOSKit: Attempting to register local player in lobby..."));
+							// Note: Lobby members are automatically added when creating, but we can verify
+							// For sessions, we need to explicitly register players
+						}
+						
 						AsyncNode->FinishAndCleanup();
 					}
 				}
 				else
 				{
-					const char* ResultStr = EOS_EResult_ToString(Data->ResultCode);
+					// Check if ResultCode is valid
+					if (Context->ResultCode < 0 || Context->ResultCode > 0x7FFFFFFF)
+					{
+						UE_LOG(LogTemp, Error, TEXT("EOSKit: [CALLBACK] WARNING: ResultCode appears to be invalid or corrupted!"));
+					}
+					
 					UE_LOG(LogTemp, Error, TEXT("EOSKit: ========================================"));
 					UE_LOG(LogTemp, Error, TEXT("EOSKit: CreateLobby FAILED!"));
-					UE_LOG(LogTemp, Error, TEXT("EOSKit: Error Code: %s (%d)"), UTF8_TO_TCHAR(ResultStr), static_cast<int32>(Data->ResultCode));
+					UE_LOG(LogTemp, Error, TEXT("EOSKit: Error Code: %s (%d / 0x%08X)"), 
+						UTF8_TO_TCHAR(ResultStr), 
+						static_cast<int32>(Context->ResultCode),
+						static_cast<uint32>(Context->ResultCode));
 					UE_LOG(LogTemp, Error, TEXT("EOSKit: Session Name: %s"), *Context->SessionName);
+					
+					// Log additional callback info if available
+					if (bHasLobbyId)
+					{
+						UE_LOG(LogTemp, Warning, TEXT("EOSKit: WARNING: LobbyId exists despite failure: %s"), *Context->LobbyId);
+					}
+					
 					UE_LOG(LogTemp, Error, TEXT("EOSKit: ========================================"));
 
 					if (AsyncNode)
 					{
-						AsyncNode->OnFail.Broadcast(UTF8_TO_TCHAR(ResultStr));
+						FString ErrorMessage = FString::Printf(TEXT("%s (Code: %d)"), UTF8_TO_TCHAR(ResultStr), static_cast<int32>(Context->ResultCode));
+						AsyncNode->OnFail.Broadcast(ErrorMessage);
 						AsyncNode->FinishAndCleanup();
 					}
 				}

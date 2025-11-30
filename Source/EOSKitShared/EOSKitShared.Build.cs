@@ -23,5 +23,8 @@ public class EOSKitShared : ModuleRules
 				"Projects"
 			}
 		);
+
+		// Ensure WITH_EOS_SDK is defined for builds that don't set it externally
+		PublicDefinitions.Add("WITH_EOS_SDK=0");
 	}
 }

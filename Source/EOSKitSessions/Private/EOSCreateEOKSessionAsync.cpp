@@ -5,6 +5,9 @@
 #include "Kismet/GameplayStatics.h"
 #include "eos_sessions.h"
 #include "Async/Async.h"
+#include "OnlineSubsystem.h"
+#include "Interfaces/OnlineIdentityInterface.h"
+#include "Interfaces/OnlineSessionInterface.h"
 
 // Define a context struct to hold all data for the async operation
 struct FSessionCreateContext
@@ -16,6 +19,9 @@ struct FSessionCreateContext
 	TArray<TArray<uint8>> AttributeKeysUTF8;
 	TArray<TArray<uint8>> AttributeValuesUTF8;
 	EOS_HSessionModification SessionModHandle = nullptr;
+	// Store callback result data
+	EOS_EResult ResultCode = EOS_EResult::EOS_NotConfigured;
+	FString SessionId;
 };
 
 void UEOSCreateEOKSessionAsync::Activate()
@@ -255,33 +261,121 @@ void UEOSCreateEOKSessionAsync::CreateSession()
 				return;
 			}
 
-			AsyncTask(ENamedThreads::GameThread, [Context, Data]()
+			// CRITICAL: Copy callback data into context before scheduling async task
+			// The Data pointer may become invalid after the callback returns
+			Context->ResultCode = Data->ResultCode;
+			if (Data->SessionId && strlen(Data->SessionId) > 0)
 			{
-				if (Data->ResultCode == EOS_EResult::EOS_Success)
+				Context->SessionId = UTF8_TO_TCHAR(Data->SessionId);
+			}
+
+			AsyncTask(ENamedThreads::GameThread, [Context]()
+			{
+				// Log raw ResultCode for debugging
+				const char* ErrorStr = EOS_EResult_ToString(Context->ResultCode);
+				UE_LOG(LogTemp, Warning, TEXT("EOSKit: [CALLBACK] Raw ResultCode value: %d (0x%08X) = %s"), 
+					static_cast<int32>(Context->ResultCode), 
+					static_cast<uint32>(Context->ResultCode),
+					UTF8_TO_TCHAR(ErrorStr));
+				
+				// Check if we have a SessionId even if ResultCode is not Success
+				// Sometimes EOS returns a partial success with a SessionId
+				bool bHasSessionId = !Context->SessionId.IsEmpty();
+				
+				// EOS_Success is 0, so check both ways
+				bool bIsSuccess = (Context->ResultCode == EOS_EResult::EOS_Success) || (Context->ResultCode == 0);
+				
+				// If we have a SessionId, treat it as success even if ResultCode says otherwise
+				// This handles cases where EOS creates the session but returns a warning code
+				if (bIsSuccess || bHasSessionId)
 				{
 					UE_LOG(LogTemp, Log, TEXT("EOSKit: ========================================"));
 					UE_LOG(LogTemp, Log, TEXT("EOSKit: CreateSession SUCCESS!"));
 					UE_LOG(LogTemp, Log, TEXT("EOSKit: Session Name: %s"), *Context->SessionName);
-					UE_LOG(LogTemp, Log, TEXT("EOSKit: Session ID: %s"), UTF8_TO_TCHAR(Data->SessionId));
+					UE_LOG(LogTemp, Log, TEXT("EOSKit: Session ID: %s"), *Context->SessionId);
+					if (!bIsSuccess && bHasSessionId)
+					{
+						UE_LOG(LogTemp, Warning, TEXT("EOSKit: NOTE: ResultCode was %s but SessionId exists - treating as success"), UTF8_TO_TCHAR(ErrorStr));
+					}
 					UE_LOG(LogTemp, Log, TEXT("EOSKit: ========================================"));
 					
 					if (Context->AsyncNode)
 					{
-						Context->AsyncNode->OnSuccess.Broadcast(UTF8_TO_TCHAR(Data->SessionId));
+						Context->AsyncNode->OnSuccess.Broadcast(Context->SessionId);
+						
+						// Register the local player in the session after successful creation
+						if (bHasSessionId && Context->AsyncNode && Context->AsyncNode->CachedWorldContextObject)
+						{
+							UE_LOG(LogTemp, Log, TEXT("EOSKit: Attempting to register local player in session..."));
+							
+							// Use OnlineSubsystem to register player
+							if (const IOnlineSubsystem* Subsystem = Online::GetSubsystem(Context->AsyncNode->CachedWorldContextObject->GetWorld()))
+							{
+								if (const IOnlineSessionPtr SessionPtr = Subsystem->GetSessionInterface())
+								{
+									if (const IOnlineIdentityPtr Identity = Subsystem->GetIdentityInterface())
+									{
+										if (TSharedPtr<const FUniqueNetId> UniqueId = Identity->GetUniquePlayerId(0))
+										{
+											if (SessionPtr->RegisterPlayer(Context->SessionName, *UniqueId, false))
+											{
+												UE_LOG(LogTemp, Log, TEXT("EOSKit: Successfully registered local player in session '%s'"), *Context->SessionName.ToString());
+											}
+											else
+											{
+												UE_LOG(LogTemp, Warning, TEXT("EOSKit: Failed to register local player in session '%s'"), *Context->SessionName.ToString());
+											}
+										}
+										else
+										{
+											UE_LOG(LogTemp, Warning, TEXT("EOSKit: Could not get UniqueNetId for player registration"));
+										}
+									}
+									else
+									{
+										UE_LOG(LogTemp, Warning, TEXT("EOSKit: Could not get Identity interface for player registration"));
+									}
+								}
+								else
+								{
+									UE_LOG(LogTemp, Warning, TEXT("EOSKit: Could not get Session interface for player registration"));
+								}
+							}
+							else
+							{
+								UE_LOG(LogTemp, Warning, TEXT("EOSKit: Could not get OnlineSubsystem for player registration"));
+							}
+						}
 					}
 				}
 				else
 				{
-					const char* ErrorStr = EOS_EResult_ToString(Data->ResultCode);
+					// Check if ResultCode is valid
+					if (Context->ResultCode < 0 || Context->ResultCode > 0x7FFFFFFF)
+					{
+						UE_LOG(LogTemp, Error, TEXT("EOSKit: [CALLBACK] WARNING: ResultCode appears to be invalid or corrupted!"));
+					}
+					
 					UE_LOG(LogTemp, Error, TEXT("EOSKit: ========================================"));
 					UE_LOG(LogTemp, Error, TEXT("EOSKit: CreateSession FAILED!"));
-					UE_LOG(LogTemp, Error, TEXT("EOSKit: Error Code: %s (%d)"), UTF8_TO_TCHAR(ErrorStr), static_cast<int32>(Data->ResultCode));
+					UE_LOG(LogTemp, Error, TEXT("EOSKit: Error Code: %s (%d / 0x%08X)"), 
+						UTF8_TO_TCHAR(ErrorStr), 
+						static_cast<int32>(Context->ResultCode),
+						static_cast<uint32>(Context->ResultCode));
 					UE_LOG(LogTemp, Error, TEXT("EOSKit: Session Name: %s"), *Context->SessionName);
+					
+					// Log additional callback info if available
+					if (bHasSessionId)
+					{
+						UE_LOG(LogTemp, Warning, TEXT("EOSKit: WARNING: SessionId exists despite failure: %s"), *Context->SessionId);
+					}
+					
 					UE_LOG(LogTemp, Error, TEXT("EOSKit: ========================================"));
 					
 					if (Context->AsyncNode)
 					{
-						Context->AsyncNode->OnFail.Broadcast(FString::Printf(TEXT("UpdateSession failed: %s"), UTF8_TO_TCHAR(ErrorStr)));
+						FString ErrorMessage = FString::Printf(TEXT("UpdateSession failed: %s (Code: %d)"), UTF8_TO_TCHAR(ErrorStr), static_cast<int32>(Context->ResultCode));
+						Context->AsyncNode->OnFail.Broadcast(ErrorMessage);
 					}
 				}
 

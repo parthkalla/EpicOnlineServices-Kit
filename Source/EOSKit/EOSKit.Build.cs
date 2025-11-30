@@ -30,7 +30,11 @@ public class EOSKit : ModuleRules
 				"Projects",
 				"DeveloperSettings",
 				"EOSShared",
-				"Sockets"
+				"EOSKitShared",
+				"Sockets",
+				"EOSKitAuth",
+				"EOSKitLobbies",
+				"EOSKitSessions"
 			}
 		);
 

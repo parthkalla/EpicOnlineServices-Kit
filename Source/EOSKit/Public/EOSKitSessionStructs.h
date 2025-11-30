@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "FindSessionsCallbackProxy.h"
+#include "EOSKitSharedTypes.h"
 #include "EOSKitSessionStructs.generated.h"
 
 /**
@@ -73,28 +74,7 @@ struct FEOSKitConnectIdToken
 	}
 };
 
-/**
- * Continuance Token structure for account linking
- * Returned when login fails due to external account not being linked
- */
-USTRUCT(BlueprintType)
-struct FEOSKitContinuanceToken
-{
-	GENERATED_BODY()
-
-	UPROPERTY(BlueprintReadWrite, Category = "EOSKit|Connect")
-	FString TokenString;
-
-	FEOSKitContinuanceToken()
-		: TokenString(TEXT(""))
-	{
-	}
-
-	FEOSKitContinuanceToken(const FString& InToken)
-		: TokenString(InToken)
-	{
-	}
-};
+// FEOSKitContinuanceToken is now defined in EOSKitSharedTypes.h
 
 /**
  * Struct for EOS attribute (key-value pair for session attributes)

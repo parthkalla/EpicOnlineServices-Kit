@@ -35,10 +35,20 @@ DECLARE_DYNAMIC_DELEGATE_ThreeParams(FEOSKitOnLobbyInviteReceived, FString, Loca
  */
 DECLARE_DYNAMIC_DELEGATE_ThreeParams(FEOSKitOnLobbyMemberStatusReceived, FString, TargetUserId, FString, LobbyId, int32, CurrentStatus);
 
-/**
- * Delegate for lobby update received notifications
- */
-DECLARE_DYNAMIC_DELEGATE_OneParam(FEOSKitOnLobbyUpdateReceived, FString, LobbyId);
+	/**
+	 * Delegate for lobby update received notifications
+	 */
+	DECLARE_DYNAMIC_DELEGATE_OneParam(FEOSKitOnLobbyUpdateReceived, FString, LobbyId);
+
+	/**
+	 * Delegate for lobby member update received notifications
+	 */
+	DECLARE_DYNAMIC_DELEGATE_TwoParams(FEOSKitOnLobbyMemberUpdateReceived, FString, LobbyId, FString, TargetUserId);
+
+	/**
+	 * Delegate for lobby invite rejected notifications
+	 */
+	DECLARE_DYNAMIC_DELEGATE_FourParams(FEOSKitOnLobbyInviteRejected, FString, LocalUserId, FString, TargetUserId, FString, LobbyId, FString, InviteId);
 
 /**
  * EOSKit Lobby Subsystem
@@ -138,6 +148,32 @@ public:
 	void UnregisterLobbyUpdateReceivedNotification();
 
 	/**
+	 * Register for lobby member update received notifications
+	 * Sent when a lobby member updates their attributes
+	 */
+	UFUNCTION(BlueprintCallable, Category = "EOSKit|Lobby|Subsystem")
+	bool RegisterLobbyMemberUpdateReceivedNotification(const FEOSKitOnLobbyMemberUpdateReceived& Callback);
+
+	/**
+	 * Unregister from lobby member update received notifications
+	 */
+	UFUNCTION(BlueprintCallable, Category = "EOSKit|Lobby|Subsystem")
+	void UnregisterLobbyMemberUpdateReceivedNotification();
+
+	/**
+	 * Register for lobby invite rejected notifications
+	 * Sent when a user rejects a lobby invitation via the overlay
+	 */
+	UFUNCTION(BlueprintCallable, Category = "EOSKit|Lobby|Subsystem")
+	bool RegisterLobbyInviteRejectedNotification(const FEOSKitOnLobbyInviteRejected& Callback);
+
+	/**
+	 * Unregister from lobby invite rejected notifications
+	 */
+	UFUNCTION(BlueprintCallable, Category = "EOSKit|Lobby|Subsystem")
+	void UnregisterLobbyInviteRejectedNotification();
+
+	/**
 	 * Unregister from all lobby notifications
 	 */
 	UFUNCTION(BlueprintCallable, Category = "EOSKit|Lobby|Subsystem")
@@ -154,6 +190,8 @@ private:
 	static void OnLobbyInviteReceivedCallback(const void* Data);
 	static void OnLobbyMemberStatusReceivedCallback(const void* Data);
 	static void OnLobbyUpdateReceivedCallback(const void* Data);
+	static void OnLobbyMemberUpdateReceivedCallback(const void* Data);
+	static void OnLobbyInviteRejectedCallback(const void* Data);
 
 	// Notification delegates
 	FEOSKitOnJoinLobbyAccepted OnJoinLobbyAcceptedDelegate;
@@ -162,6 +200,8 @@ private:
 	FEOSKitOnLobbyInviteReceived OnLobbyInviteReceivedDelegate;
 	FEOSKitOnLobbyMemberStatusReceived OnLobbyMemberStatusReceivedDelegate;
 	FEOSKitOnLobbyUpdateReceived OnLobbyUpdateReceivedDelegate;
+	FEOSKitOnLobbyMemberUpdateReceived OnLobbyMemberUpdateReceivedDelegate;
+	FEOSKitOnLobbyInviteRejected OnLobbyInviteRejectedDelegate;
 
 	// Notification IDs
 	uint64 JoinLobbyAcceptedNotificationId = 0;
@@ -170,4 +210,6 @@ private:
 	uint64 LobbyInviteReceivedNotificationId = 0;
 	uint64 LobbyMemberStatusReceivedNotificationId = 0;
 	uint64 LobbyUpdateReceivedNotificationId = 0;
+	uint64 LobbyMemberUpdateReceivedNotificationId = 0;
+	uint64 LobbyInviteRejectedNotificationId = 0;
 };

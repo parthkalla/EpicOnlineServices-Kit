@@ -28,7 +28,7 @@ void UEOSLinkAccountAsync::PerformLink()
 	UE_LOG(LogTemp, Warning, TEXT("EOSKit: ========================================"));
 	UE_LOG(LogTemp, Warning, TEXT("EOSKit: Linking Account"));
 	UE_LOG(LogTemp, Warning, TEXT("EOSKit: Local Product User ID: %s"), *VarLocalProductUserId);
-	UE_LOG(LogTemp, Warning, TEXT("EOSKit: Continuance Token Present: %s"), VarContinuanceToken.TokenString.IsEmpty() ? TEXT("No") : TEXT("Yes"));
+	UE_LOG(LogTemp, Warning, TEXT("EOSKit: Continuance Token Present: %s"), VarContinuanceToken.ContinuanceToken.IsEmpty() ? TEXT("No") : TEXT("Yes"));
 	UE_LOG(LogTemp, Warning, TEXT("EOSKit: ========================================"));
 	
 	// Get the EOSKit subsystem
@@ -92,7 +92,7 @@ void UEOSLinkAccountAsync::PerformLink()
 	}
 	
 	// Validate Continuance Token
-	if (VarContinuanceToken.TokenString.IsEmpty())
+	if (VarContinuanceToken.ContinuanceToken.IsEmpty())
 	{
 		UE_LOG(LogTemp, Error, TEXT("EOSKit: Continuance Token is empty"));
 		UE_LOG(LogTemp, Error, TEXT("EOSKit: Token should be obtained from failed login attempt"));

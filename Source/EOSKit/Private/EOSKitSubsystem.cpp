@@ -1,415 +1,1239 @@
-// Copyright (C) 2024, All Rights Reserved.
-
 #include "EOSKitSubsystem.h"
-#include "EOSKitSettings.h"
-#include "IEOSSDKManager.h"
-#include "EOSShared.h"
+#include "OnlineSubsystemUtils.h"
+#include "OnlineSubsystem.h"
+#include "Engine/LocalPlayer.h"
+#include "Runtime/Core/Public/Misc/CommandLine.h"
+#include "Engine/GameInstance.h"
+#include "Interfaces/OnlineIdentityInterface.h"
 #include "Kismet/GameplayStatics.h"
-
-void UEOSKitSubsystem::Initialize(FSubsystemCollectionBase& Collection)
-{
-	Super::Initialize(Collection);
-	PlatformHandle = nullptr;
-	ProductUserId = nullptr;
-	LoginNotificationId = 0;
-	CreateEOSPlatform();
-
-	// Register for Connect login status changes
-	if (PlatformHandle)
-	{
-		RegisterForConnectLoginStatusChanges();
-	}
-
-	// Auto-login if configured
-	const UEOSKitSettings* Settings = GetDefault<UEOSKitSettings>();
-	if (Settings && Settings->bAutomaticallySetupEIK && Settings->bEnableAutoLogin && PlatformHandle)
-	{
-		PerformAutoLogin();
-	}
-}
-
-void UEOSKitSubsystem::Deinitialize()
-{
-	// Unregister notifications
-	if (PlatformHandle && LoginNotificationId != 0)
-	{
-		EOS_HConnect ConnectHandle = EOS_Platform_GetConnectInterface(PlatformHandle);
-		if (ConnectHandle)
-		{
-			EOS_Connect_RemoveNotifyAuthExpiration(ConnectHandle, LoginNotificationId);
-			LoginNotificationId = 0;
-		}
-	}
-
-	if (PlatformHandle)
-	{
-		EOS_Platform_Release(PlatformHandle);
-		PlatformHandle = nullptr;
-	}
-	ProductUserId = nullptr;
-	Super::Deinitialize();
-}
-
-void UEOSKitSubsystem::Tick(float DeltaTime)
-{
-	if (PlatformHandle)
-	{
-		EOS_Platform_Tick(PlatformHandle);
-	}
-}
-
-TStatId UEOSKitSubsystem::GetStatId() const
-{
-	RETURN_QUICK_DECLARE_CYCLE_STAT(UEOSKitSubsystem, STATGROUP_Tickables);
-}
-
-EOS_ProductUserId UEOSKitSubsystem::GetProductUserId() const
-{
-	return ProductUserId;
-}
-
-void UEOSKitSubsystem::RegisterForConnectLoginStatusChanges()
-{
-	if (!PlatformHandle)
-	{
-		return;
-	}
-
-	EOS_HConnect ConnectHandle = EOS_Platform_GetConnectInterface(PlatformHandle);
-	if (!ConnectHandle)
-	{
-		return;
-	}
-
-	// Add notification for login status changes
-	EOS_Connect_AddNotifyLoginStatusChangedOptions Options = {};
-	Options.ApiVersion = EOS_CONNECT_ADDNOTIFYLOGINSTATUSCHANGED_API_LATEST;
-
-	LoginNotificationId = EOS_Connect_AddNotifyLoginStatusChanged(ConnectHandle, &Options, this, &UEOSKitSubsystem::OnConnectLoginStatusChanged);
-	
-	UE_LOG(LogTemp, Log, TEXT("EOSKit: Registered for Connect login status changes"));
-}
-
-void EOS_CALL UEOSKitSubsystem::OnConnectLoginStatusChanged(const EOS_Connect_LoginStatusChangedCallbackInfo* Data)
-{
-	if (!Data || !Data->ClientData)
-	{
-		return;
-	}
-
-	UEOSKitSubsystem* Self = static_cast<UEOSKitSubsystem*>(Data->ClientData);
-
-	if (Data->CurrentStatus == EOS_ELoginStatus::EOS_LS_LoggedIn)
-	{
-		// User logged in - cache the ProductUserId
-		Self->ProductUserId = Data->LocalUserId;
-
-		// Log for debugging
-		char ProductUserIdStr[EOS_PRODUCTUSERID_MAX_LENGTH + 1];
-		int32 ProductUserIdStrSize = sizeof(ProductUserIdStr);
-		EOS_ProductUserId_ToString(Data->LocalUserId, ProductUserIdStr, &ProductUserIdStrSize);
-		
-		UE_LOG(LogTemp, Log, TEXT("? EOSKit: User logged in! Product User ID: %s"), UTF8_TO_TCHAR(ProductUserIdStr));
-	}
-	else if (Data->CurrentStatus == EOS_ELoginStatus::EOS_LS_NotLoggedIn)
-	{
-		// User logged out
-		Self->ProductUserId = nullptr;
-		UE_LOG(LogTemp, Warning, TEXT("?? EOSKit: User logged out"));
-	}
-}
-
-void UEOSKitSubsystem::CreateEOSPlatform()
-{
-	const UEOSKitSettings* Settings = GetDefault<UEOSKitSettings>();
-	if (!Settings) 
-	{
-		UE_LOG(LogTemp, Error, TEXT("EOSKit Settings not found"));
-		return;
-	}
-
-	// Get the active artifact for the current platform
-	FEOSArtifact ActiveArtifact = Settings->GetActiveArtifact();
-
-	// EOS SDK is already initialized by EOSShared plugin, so we don't call EOS_Initialize
-	// We just need to create the platform handle
-	
-	EOS_Platform_Options PlatformOptions = {};
-	PlatformOptions.ApiVersion = EOS_PLATFORM_OPTIONS_API_LATEST;
-	
-	// Use active artifact credentials
-	FTCHARToUTF8 ProductId(*ActiveArtifact.ProductId);
-	FTCHARToUTF8 SandboxId(*ActiveArtifact.SandboxId);
-	FTCHARToUTF8 DeploymentId(*ActiveArtifact.DeploymentId);
-	FTCHARToUTF8 ClientId(*ActiveArtifact.ClientId);
-	FTCHARToUTF8 ClientSecret(*ActiveArtifact.ClientSecret);
-	FTCHARToUTF8 EncKey(*ActiveArtifact.EncryptionKey);
-
-	PlatformOptions.ProductId = ProductId.Get();
-	PlatformOptions.SandboxId = SandboxId.Get();
-	PlatformOptions.DeploymentId = DeploymentId.Get();
-	PlatformOptions.ClientCredentials.ClientId = ClientId.Get();
-	PlatformOptions.ClientCredentials.ClientSecret = ClientSecret.Get();
-	PlatformOptions.EncryptionKey = EncKey.Get();
-	PlatformOptions.bIsServer = false;
-	PlatformOptions.Flags = 0; // Initialize flags
-
-	// Apply tick budget if configured
-	if (Settings->TickBudgetInMilliseconds > 0)
-	{
-		PlatformOptions.TickBudgetInMilliseconds = Settings->TickBudgetInMilliseconds;
-	}
-
-	// Handle overlay settings
-	// Mobile platforms (Android/iOS) do not support the PC overlay, so force system browser
-#if PLATFORM_ANDROID || PLATFORM_IOS
-	// Force disable overlay on mobile - mobile uses system browser for login
-	PlatformOptions.Flags |= EOS_PF_DISABLE_OVERLAY;
-	UE_LOG(LogTemp, Log, TEXT("EOSKit: Mobile platform detected - forcing system browser login (overlay disabled)"));
-#else
-	// PC/Mac/Console: Use the setting from EOSKitSettings
-	if (!Settings->bEnableOverlay)
-	{
-		PlatformOptions.Flags |= EOS_PF_DISABLE_OVERLAY;
-		UE_LOG(LogTemp, Log, TEXT("EOSKit: Overlay disabled by settings"));
-	}
-	else
-	{
-		UE_LOG(LogTemp, Log, TEXT("EOSKit: Overlay enabled"));
-	}
+#include "GameFramework/SaveGame.h"
+#include "Interfaces/OnlineLeaderboardInterface.h"
+#include "Interfaces/OnlineUserCloudInterface.h"
+#include "Interfaces/OnlineTitleFileInterface.h"
+#include "Interfaces/OnlineExternalUIInterface.h"
+#include "Interfaces/OnlineStoreV2Interface.h"
+#include "Interfaces/OnlinePurchaseInterface.h"
+#include "OnlineSubsystemEOS.h"
+#include "IEOSSDKManager.h"
+#if WITH_EOS_SDK
+#include "eos_types.h"
+#include "eos_common.h"
 #endif
 
-	// Check if we have valid IDs before creating
-	if (PlatformOptions.ProductId && strlen(PlatformOptions.ProductId) > 0 && 
-		PlatformOptions.SandboxId && strlen(PlatformOptions.SandboxId) > 0 && 
-		PlatformOptions.DeploymentId && strlen(PlatformOptions.DeploymentId) > 0)
+UEOSKitSubsystem::UEOSKitSubsystem()
+	: ReadRef(MakeShared<FOnlineLeaderboardRead, ESPMode::ThreadSafe>())
+{
+	// Add the delegate to the online subsystem
+	if (const IOnlineSubsystem* SubsystemRef = IOnlineSubsystem::Get())
 	{
-		PlatformHandle = EOS_Platform_Create(&PlatformOptions);
-		
-		if (PlatformHandle)
+		if (const IOnlineSessionPtr SessionPtrRef = SubsystemRef->GetSessionInterface())
 		{
-			UE_LOG(LogTemp, Log, TEXT("EOSKit: Platform created successfully using artifact: %s"), *ActiveArtifact.ArtifactName);
+			// Note: Session invite accepted delegate would need a different handler
+			// For now, we'll handle it in JoinSession
+		}
+	}
+}
+
+// ========================================
+// Login Functions
+// ========================================
+
+void UEOSKitSubsystem::Login(int32 LocalUserNum, const FString& ID, const FString& Token, const FString& Type, const FBP_EOSKit_Login_Callback& Result)
+{
+	LoginCallBackBP = Result;
+	if (const IOnlineSubsystem* SubsystemRef = IOnlineSubsystem::Get())
+	{
+		if (const IOnlineIdentityPtr IdentityPointerRef = SubsystemRef->GetIdentityInterface())
+		{
+			FOnlineAccountCredentials AccountDetails;
+			AccountDetails.Id = ID;
+			AccountDetails.Token = Token;
+			AccountDetails.Type = Type;
+			IdentityPointerRef->OnLoginCompleteDelegates->AddUObject(this, &UEOSKitSubsystem::LoginCallback);
+			IdentityPointerRef->Login(LocalUserNum, AccountDetails);
 		}
 		else
 		{
-			UE_LOG(LogTemp, Error, TEXT("EOSKit: Failed to create EOS Platform"));
+			Result.ExecuteIfBound(false, TEXT("Failed to get Identity Pointer"));
 		}
 	}
 	else
 	{
-		UE_LOG(LogTemp, Warning, TEXT("EOSKit: Platform credentials are incomplete. Please configure them in Project Settings > Plugins > EOS Kit"));
-		UE_LOG(LogTemp, Warning, TEXT("  ProductId: %s"), *ActiveArtifact.ProductId);
-		UE_LOG(LogTemp, Warning, TEXT("  SandboxId: %s"), *ActiveArtifact.SandboxId);
-		UE_LOG(LogTemp, Warning, TEXT("  DeploymentId: %s"), *ActiveArtifact.DeploymentId);
+		Result.ExecuteIfBound(false, TEXT("Failed to get Subsystem"));
 	}
 }
 
-void UEOSKitSubsystem::PerformAutoLogin()
+void UEOSKitSubsystem::LoginWithDeviceID(int32 LocalUserNum, const FString& DisplayName, const FString& DeviceName, const FBP_EOSKit_Login_Callback& Result)
 {
-	const UEOSKitSettings* Settings = GetDefault<UEOSKitSettings>();
-	if (!Settings || !PlatformHandle)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("EOSKit: Cannot perform auto-login - Settings or Platform not available"));
-		return;
-	}
-
-	EOS_HAuth AuthHandle = EOS_Platform_GetAuthInterface(PlatformHandle);
-	if (!AuthHandle)
-	{
-		UE_LOG(LogTemp, Error, TEXT("EOSKit: Failed to get Auth Interface for auto-login"));
-		return;
-	}
-
-	// Convert credential type string to EOS enum
-	EOS_ELoginCredentialType CredentialType = EOS_ELoginCredentialType::EOS_LCT_AccountPortal;
-	
-	if (Settings->AutoLoginCredentialType == TEXT("AccountPortal"))
-	{
-		CredentialType = EOS_ELoginCredentialType::EOS_LCT_AccountPortal;
-	}
-	else if (Settings->AutoLoginCredentialType == TEXT("PersistentAuth"))
-	{
-		CredentialType = EOS_ELoginCredentialType::EOS_LCT_PersistentAuth;
-	}
-	else if (Settings->AutoLoginCredentialType == TEXT("Developer"))
-	{
-		CredentialType = EOS_ELoginCredentialType::EOS_LCT_Developer;
-	}
-	else if (Settings->AutoLoginCredentialType == TEXT("DeviceCode"))
-	{
-		CredentialType = EOS_ELoginCredentialType::EOS_LCT_DeviceCode;
-	}
-	else if (Settings->AutoLoginCredentialType == TEXT("ExchangeCode"))
-	{
-		CredentialType = EOS_ELoginCredentialType::EOS_LCT_ExchangeCode;
-	}
-
-	// Setup credentials
-	EOS_Auth_Credentials Credentials = {};
-	Credentials.ApiVersion = EOS_AUTH_CREDENTIALS_API_LATEST;
-	Credentials.Type = CredentialType;
-
-	FTCHARToUTF8 IdConverter(*Settings->AutoLoginCredentialId);
-	FTCHARToUTF8 TokenConverter(*Settings->AutoLoginCredentialToken);
-
-	Credentials.Id = Settings->AutoLoginCredentialId.IsEmpty() ? nullptr : IdConverter.Get();
-	Credentials.Token = Settings->AutoLoginCredentialToken.IsEmpty() ? nullptr : TokenConverter.Get();
-
-	// Setup login options
-	EOS_Auth_LoginOptions LoginOptions = {};
-	LoginOptions.ApiVersion = EOS_AUTH_LOGIN_API_LATEST;
-	LoginOptions.Credentials = &Credentials;
-
-	UE_LOG(LogTemp, Log, TEXT("EOSKit: Starting auto-login with credential type: %s"), *Settings->AutoLoginCredentialType);
-
-	// Start Auth login
-	EOS_Auth_Login(AuthHandle, &LoginOptions, this, &UEOSKitSubsystem::OnAutoLoginComplete);
+	Login(LocalUserNum, DisplayName, DeviceName, TEXT("deviceid"), Result);
 }
 
-void EOS_CALL UEOSKitSubsystem::OnAutoLoginComplete(const EOS_Auth_LoginCallbackInfo* Data)
+void UEOSKitSubsystem::LoginWithAccountPortal(int32 LocalUserNum, const FBP_EOSKit_Login_Callback& Result)
 {
-	if (!Data || !Data->ClientData)
+	Login(LocalUserNum, TEXT(""), TEXT(""), TEXT("accountportal"), Result);
+}
+
+void UEOSKitSubsystem::LoginWithSteam(int32 LocalUserNum, const FBP_EOSKit_Login_Callback& Result)
+{
+	Login(LocalUserNum, TEXT(""), TEXT(""), TEXT("steam"), Result);
+}
+
+void UEOSKitSubsystem::LoginWithPersistantAuth(int32 LocalUserNum, const FBP_EOSKit_Login_Callback& Result)
+{
+	Login(LocalUserNum, TEXT(""), TEXT(""), TEXT("persistentauth"), Result);
+}
+
+void UEOSKitSubsystem::LoginWithDeveloperTool(int32 LocalUserNum, const FString& LocalIP, const FString& Credential, const FBP_EOSKit_Login_Callback& Result)
+{
+	Login(LocalUserNum, LocalIP, Credential, TEXT("developer"), Result);
+}
+
+void UEOSKitSubsystem::LoginWithEpicLauncher(int32 LocalUserNum, const FBP_EOSKit_Login_Callback& Result)
+{
+	FString EGS_Token;
+	FParse::Value(FCommandLine::Get(), TEXT("AUTH_PASSWORD="), EGS_Token);
+	Login(LocalUserNum, TEXT(""), EGS_Token, TEXT("exchangecode"), Result);
+}
+
+void UEOSKitSubsystem::Logout(int32 LocalUserNum, const FBP_EOSKit_Logout_Callback& Result)
+{
+	LogoutCallbackBP = Result;
+	if (const IOnlineSubsystem* SubsystemRef = IOnlineSubsystem::Get())
 	{
-		return;
-	}
-
-	UEOSKitSubsystem* Self = static_cast<UEOSKitSubsystem*>(Data->ClientData);
-
-	if (Data->ResultCode == EOS_EResult::EOS_Success)
-	{
-		UE_LOG(LogTemp, Log, TEXT("EOSKit: Auto-login successful"));
-		
-		// Convert Epic Account ID to string for logging
-		char EpicAccountIdStr[EOS_EPICACCOUNTID_MAX_LENGTH + 1];
-		int32 EpicAccountIdStrSize = sizeof(EpicAccountIdStr);
-		EOS_EpicAccountId_ToString(Data->LocalUserId, EpicAccountIdStr, &EpicAccountIdStrSize);
-		
-		UE_LOG(LogTemp, Log, TEXT("EOSKit: Epic Account ID: %s"), UTF8_TO_TCHAR(EpicAccountIdStr));
-
-		// Now login to Connect interface
-		Self->StartAutoConnectLogin(Data->LocalUserId);
+		if (const IOnlineIdentityPtr IdentityPointerRef = SubsystemRef->GetIdentityInterface())
+		{
+			IdentityPointerRef->OnLogoutCompleteDelegates->AddUObject(this, &UEOSKitSubsystem::LogoutCallback);
+			IdentityPointerRef->Logout(LocalUserNum);
+		}
+		else
+		{
+			Result.ExecuteIfBound(false);
+		}
 	}
 	else
 	{
-		UE_LOG(LogTemp, Error, TEXT("EOSKit: Auto-login failed: %s"), UTF8_TO_TCHAR(EOS_EResult_ToString(Data->ResultCode)));
+		Result.ExecuteIfBound(false);
 	}
 }
 
-void UEOSKitSubsystem::StartAutoConnectLogin(EOS_EpicAccountId EpicAccountId)
+// ========================================
+// User Information
+// ========================================
+
+FString UEOSKitSubsystem::GetPlayerNickname(const int32 LocalUserNum)
 {
-	if (!PlatformHandle)
+	if (const IOnlineSubsystem* SubsystemRef = IOnlineSubsystem::Get())
 	{
-		UE_LOG(LogTemp, Error, TEXT("EOSKit: Cannot start Connect login - Platform not available"));
-		return;
-	}
-
-	EOS_HAuth AuthHandle = EOS_Platform_GetAuthInterface(PlatformHandle);
-	EOS_HConnect ConnectHandle = EOS_Platform_GetConnectInterface(PlatformHandle);
-
-	if (!AuthHandle || !ConnectHandle)
-	{
-		UE_LOG(LogTemp, Error, TEXT("EOSKit: Failed to get EOS Interfaces for Connect login"));
-		return;
-	}
-
-	// Copy user auth token
-	EOS_Auth_Token* AuthToken = nullptr;
-	EOS_Auth_CopyUserAuthTokenOptions CopyTokenOptions = {};
-	CopyTokenOptions.ApiVersion = EOS_AUTH_COPYUSERAUTHTOKEN_API_LATEST;
-
-	EOS_EResult CopyResult = EOS_Auth_CopyUserAuthToken(AuthHandle, &CopyTokenOptions, EpicAccountId, &AuthToken);
-	
-	if (CopyResult != EOS_EResult::EOS_Success)
-	{
-		UE_LOG(LogTemp, Error, TEXT("EOSKit: Failed to copy auth token for Connect login"));
-		return;
-	}
-
-	// Setup Connect credentials
-	EOS_Connect_Credentials ConnectCredentials = {};
-	ConnectCredentials.ApiVersion = EOS_CONNECT_CREDENTIALS_API_LATEST;
-	ConnectCredentials.Type = EOS_EExternalCredentialType::EOS_ECT_EPIC;
-	ConnectCredentials.Token = AuthToken->AccessToken;
-
-	// Setup Connect login options
-	EOS_Connect_LoginOptions ConnectLoginOptions = {};
-	ConnectLoginOptions.ApiVersion = EOS_CONNECT_LOGIN_API_LATEST;
-	ConnectLoginOptions.Credentials = &ConnectCredentials;
-
-	// Start Connect login
-	EOS_Connect_Login(ConnectHandle, &ConnectLoginOptions, this, &UEOSKitSubsystem::OnAutoConnectLoginComplete);
-
-	// Release auth token
-	EOS_Auth_Token_Release(AuthToken);
-}
-
-void EOS_CALL UEOSKitSubsystem::OnAutoConnectLoginComplete(const EOS_Connect_LoginCallbackInfo* Data)
-{
-	if (!Data || !Data->ClientData)
-	{
-		return;
-	}
-
-	UEOSKitSubsystem* Self = static_cast<UEOSKitSubsystem*>(Data->ClientData);
-
-	if (Data->ResultCode == EOS_EResult::EOS_Success)
-	{
-		Self->ProductUserId = Data->LocalUserId;
-
-		// Convert Product User ID to string for logging
-		char ProductUserIdStr[EOS_PRODUCTUSERID_MAX_LENGTH + 1];
-		int32 ProductUserIdStrSize = sizeof(ProductUserIdStr);
-		EOS_ProductUserId_ToString(Data->LocalUserId, ProductUserIdStr, &ProductUserIdStrSize);
-
-		UE_LOG(LogTemp, Log, TEXT("EOSKit: Auto-login to Connect successful. Product User ID: %s"), UTF8_TO_TCHAR(ProductUserIdStr));
-	}
-	else if (Data->ResultCode == EOS_EResult::EOS_InvalidUser)
-	{
-		// User doesn't have a product user ID, need to create one
-		UE_LOG(LogTemp, Warning, TEXT("EOSKit: User doesn't have a Product User ID, creating one..."));
-		
-		if (!Self->PlatformHandle)
+		if (const IOnlineIdentityPtr IdentityPointerRef = SubsystemRef->GetIdentityInterface())
 		{
-			UE_LOG(LogTemp, Error, TEXT("EOSKit: Cannot create user - Platform not available"));
+			return IdentityPointerRef->GetPlayerNickname(LocalUserNum);
+		}
+		return FString();
+	}
+	return FString();
+}
+
+bool UEOSKitSubsystem::GetLoginStatus(const int32 LocalUserNum)
+{
+	if (const IOnlineSubsystem* SubsystemRef = IOnlineSubsystem::Get())
+	{
+		if (const IOnlineIdentityPtr IdentityPointerRef = SubsystemRef->GetIdentityInterface())
+		{
+			if (IdentityPointerRef->GetLoginStatus(LocalUserNum) == ELoginStatus::LoggedIn)
+			{
+				return true;
+			}
+			else
+			{
+				return false;
+			}
+		}
+		else
+		{
+			return false;
+		}
+	}
+	else
+	{
+		return false;
+	}
+}
+
+// ========================================
+// Session Functions
+// ========================================
+
+void UEOSKitSubsystem::CreateEOSSession(
+	const FBP_EOSKit_CreateSession_Callback& Result,
+	TMap<FString, FString> Custom_Settings,
+	FString SessionName,
+	bool bIsDedicatedServer,
+	bool bIsLan,
+	int32 NumberOfPublicConnections,
+	EEOSKitRegion Region)
+{
+	CreateSession_CallbackBP = Result;
+	if (IOnlineSubsystem* SubsystemRef = Online::GetSubsystem(this->GetWorld()))
+	{
+		if (IOnlineSessionPtr SessionPtrRef = SubsystemRef->GetSessionInterface())
+		{
+			FOnlineSessionSettings SessionCreationInfo;
+			SessionCreationInfo.bIsDedicated = bIsDedicatedServer;
+			SessionCreationInfo.bUsesPresence = true;
+			SessionCreationInfo.bAllowJoinViaPresence = true;
+			SessionCreationInfo.bAllowJoinViaPresenceFriendsOnly = false;
+			SessionCreationInfo.bAllowInvites = true;
+			if (bIsDedicatedServer)
+			{
+				SessionCreationInfo.bUsesPresence = false;
+				SessionCreationInfo.bAllowJoinViaPresence = false;
+				SessionCreationInfo.bAllowJoinViaPresenceFriendsOnly = false;
+				SessionCreationInfo.bAllowInvites = false;
+			}
+			SessionCreationInfo.bIsLANMatch = bIsLan;
+			SessionCreationInfo.NumPublicConnections = NumberOfPublicConnections;
+			SessionCreationInfo.bUseLobbiesIfAvailable = false;
+			SessionCreationInfo.bUseLobbiesVoiceChatIfAvailable = false;
+			SessionCreationInfo.bShouldAdvertise = true;
+			SessionCreationInfo.bAllowJoinInProgress = true;
+
+			SessionCreationInfo.Settings.Add(FName(TEXT("REGIONINFO")), FOnlineSessionSetting(UEnum::GetValueAsString(Region), EOnlineDataAdvertisementType::ViaOnlineService));
+			if (bIsDedicatedServer)
+			{
+				SessionCreationInfo.Settings.Add(FName(TEXT("PortInfo")), FOnlineSessionSetting(GetWorld()->URL.Port, EOnlineDataAdvertisementType::ViaOnlineService));
+			}
+			SessionCreationInfo.Set(SEARCH_KEYWORDS, FString(SessionName), EOnlineDataAdvertisementType::ViaOnlineService);
+			for (auto& Settings_SingleValue : Custom_Settings)
+			{
+				if (Settings_SingleValue.Key.Len() == 0)
+				{
+					continue;
+				}
+
+				FOnlineSessionSetting Setting;
+				Setting.AdvertisementType = EOnlineDataAdvertisementType::ViaOnlineService;
+				Setting.Data.SetValue(Settings_SingleValue.Value);
+				SessionCreationInfo.Set(FName(*Settings_SingleValue.Key), Setting);
+			}
+			SessionPtrRef->OnCreateSessionCompleteDelegates.AddUObject(this, &UEOSKitSubsystem::OnCreateSessionCompleted);
+			SessionPtrRef->CreateSession(0, *SessionName, SessionCreationInfo);
+		}
+	}
+}
+
+void UEOSKitSubsystem::CreateEOSLobby(
+	const FBP_EOSKit_CreateLobby_Callback& Result,
+	TMap<FString, FString> Custom_Settings,
+	FString SessionName,
+	bool bUseVoiceChat,
+	bool bUsePresence,
+	bool bAllowInvites,
+	bool bAdvertise,
+	bool bAllowJoinInProgress,
+	bool bIsLan,
+	int32 NumberOfPublicConnections,
+	int32 NumberOfPrivateConnections)
+{
+	CreateLobby_CallbackBP = Result;
+	if (IOnlineSubsystem* SubsystemRef = Online::GetSubsystem(this->GetWorld()))
+	{
+		if (IOnlineSessionPtr SessionPtrRef = SubsystemRef->GetSessionInterface())
+		{
+			FOnlineSessionSettings SessionCreationInfo;
+			SessionCreationInfo.bIsDedicated = false;
+			SessionCreationInfo.bAllowInvites = bAllowInvites;
+			SessionCreationInfo.bIsLANMatch = bIsLan;
+			SessionCreationInfo.NumPublicConnections = NumberOfPublicConnections;
+			SessionCreationInfo.NumPrivateConnections = NumberOfPrivateConnections;
+			SessionCreationInfo.bUseLobbiesIfAvailable = true;
+			SessionCreationInfo.bUseLobbiesVoiceChatIfAvailable = bUseVoiceChat;
+			SessionCreationInfo.bUsesPresence = bUsePresence;
+			SessionCreationInfo.bAllowJoinViaPresence = bUsePresence;
+			SessionCreationInfo.bAllowJoinViaPresenceFriendsOnly = bUsePresence;
+			SessionCreationInfo.bShouldAdvertise = bAdvertise;
+			SessionCreationInfo.bAllowJoinInProgress = bAllowJoinInProgress;
+
+			SessionCreationInfo.Set(SEARCH_KEYWORDS, FString(SessionName), EOnlineDataAdvertisementType::ViaOnlineService);
+			for (auto& Settings_SingleValue : Custom_Settings)
+			{
+				if (Settings_SingleValue.Key.Len() == 0)
+				{
+					continue;
+				}
+				FOnlineSessionSetting Setting;
+				Setting.AdvertisementType = EOnlineDataAdvertisementType::ViaOnlineService;
+				Setting.Data.SetValue(Settings_SingleValue.Value);
+				SessionCreationInfo.Set(FName(*Settings_SingleValue.Key), Setting);
+			}
+			SessionPtrRef->OnCreateSessionCompleteDelegates.AddUObject(this, &UEOSKitSubsystem::OnCreateLobbyCompleted);
+			SessionPtrRef->CreateSession(0, *SessionName, SessionCreationInfo);
+		}
+	}
+}
+
+void UEOSKitSubsystem::FindEOSSession(
+	const FBP_EOSKit_FindSession_Callback& Result,
+	TMap<FString, FString> Search_Settings,
+	EEOSKitMatchType MatchType,
+	EEOSKitRegion RegionToSearch)
+{
+	FindSession_CallbackBP = Result;
+	if (const IOnlineSubsystem* SubsystemRef = IOnlineSubsystem::Get())
+	{
+		if (const IOnlineSessionPtr SessionPtrRef = SubsystemRef->GetSessionInterface())
+		{
+			SessionSearch = MakeShareable(new FOnlineSessionSearch());
+			SessionSearch->QuerySettings.SearchParams.Empty();
+			SessionSearch->bIsLanQuery = false;
+			if (MatchType == EEOSKitMatchType::MatchmakingSession)
+			{
+				if (RegionToSearch != EEOSKitRegion::NoSelection)
+				{
+					SessionSearch->QuerySettings.Set(FName(TEXT("RegionInfo")), UEnum::GetValueAsString(RegionToSearch), EOnlineComparisonOp::Equals);
+				}
+			}
+			else
+			{
+				SessionSearch->QuerySettings.Set(SEARCH_LOBBIES, true, EOnlineComparisonOp::Equals);
+			}
+			if (Search_Settings.Num() > 0)
+			{
+				for (auto& Settings_SingleValue : Search_Settings)
+				{
+					if (Settings_SingleValue.Key.Len() == 0)
+					{
+						continue;
+					}
+					FOnlineSessionSetting Setting;
+					Setting.AdvertisementType = EOnlineDataAdvertisementType::ViaOnlineService;
+					Setting.Data.SetValue(Settings_SingleValue.Value);
+					SessionSearch->QuerySettings.Set(FName(*Settings_SingleValue.Key), Settings_SingleValue.Value, EOnlineComparisonOp::Equals);
+				}
+			}
+			SessionSearch->MaxSearchResults = 1000;
+			SessionPtrRef->OnFindSessionsCompleteDelegates.AddUObject(this, &UEOSKitSubsystem::OnFindSessionCompleted);
+			SessionPtrRef->FindSessions(0, SessionSearch.ToSharedRef());
+		}
+		else
+		{
+			Result.ExecuteIfBound(false, TArray<FEOSKitSessionFindStruct>());
+		}
+	}
+	else
+	{
+		Result.ExecuteIfBound(false, TArray<FEOSKitSessionFindStruct>());
+	}
+}
+
+void UEOSKitSubsystem::DestroyEosSession(const FBP_EOSKit_DestroySession_Callback& Result, FName SessionName)
+{
+	DestroySession_CallbackBP = Result;
+	if (const IOnlineSubsystem* SubsystemRef = IOnlineSubsystem::Get())
+	{
+		if (const IOnlineSessionPtr SessionPtrRef = SubsystemRef->GetSessionInterface())
+		{
+			SessionPtrRef->OnDestroySessionCompleteDelegates.AddUObject(this, &UEOSKitSubsystem::OnDestroySessionCompleted);
+			SessionPtrRef->DestroySession(SessionName);
+		}
+		else
+		{
+			Result.ExecuteIfBound(false);
+		}
+	}
+	else
+	{
+		Result.ExecuteIfBound(false);
+	}
+}
+
+void UEOSKitSubsystem::JoinEosSession(
+	const FBP_EOSKit_JoinSession_Callback& Result,
+	FName SessionName,
+	bool bIsDedicatedServerSession,
+	FBlueprintSessionResult SessionResult)
+{
+	Local_bIsDedicatedServerSession = bIsDedicatedServerSession;
+	JoinSession_CallbackBP = Result;
+	const IOnlineSubsystem* SubsystemRef = Online::GetSubsystem(this->GetWorld());
+	if (SessionResult.OnlineResult.IsSessionInfoValid())
+	{
+		if (SubsystemRef)
+		{
+			if (const IOnlineSessionPtr SessionPtrRef = SubsystemRef->GetSessionInterface())
+			{
+				if (SessionResult.OnlineResult.Session.SessionSettings.Settings.Num() > 0)
+				{
+				}
+				else
+				{
+					Result.ExecuteIfBound(false);
+				}
+				SessionPtrRef->OnJoinSessionCompleteDelegates.AddUObject(this, &UEOSKitSubsystem::OnJoinSessionCompleted);
+				SessionPtrRef->JoinSession(0, SessionName, SessionResult.OnlineResult);
+			}
+			else
+			{
+				Result.ExecuteIfBound(false);
+			}
+		}
+		else
+		{
+			Result.ExecuteIfBound(false);
+		}
+	}
+	else
+	{
+		Result.ExecuteIfBound(false);
+	}
+}
+
+// ========================================
+// Session Management
+// ========================================
+
+void UEOSKitSubsystem::UnRegisterPlayer(FName SessionName)
+{
+	if (const IOnlineSubsystem* SubsystemRef = IOnlineSubsystem::Get())
+	{
+		if (const IOnlineSessionPtr SessionPtrRef = SubsystemRef->GetSessionInterface())
+		{
+			if (const IOnlineIdentityPtr IdentityPointerRef = SubsystemRef->GetIdentityInterface())
+			{
+				SessionPtrRef->UnregisterPlayer(SessionName, *IdentityPointerRef->GetUniquePlayerId(0));
+			}
+		}
+	}
+}
+
+void UEOSKitSubsystem::RegisterPlayer(FName SessionName, bool bWasInvited)
+{
+	if (const IOnlineSubsystem* SubsystemRef = IOnlineSubsystem::Get())
+	{
+		if (const IOnlineSessionPtr SessionPtrRef = SubsystemRef->GetSessionInterface())
+		{
+			if (const IOnlineIdentityPtr IdentityPointerRef = SubsystemRef->GetIdentityInterface())
+			{
+				SessionPtrRef->RegisterPlayer(SessionName, *IdentityPointerRef->GetUniquePlayerId(0), bWasInvited);
+			}
+		}
+	}
+}
+
+void UEOSKitSubsystem::StartSession(FName SessionName)
+{
+	if (const IOnlineSubsystem* SubsystemRef = IOnlineSubsystem::Get())
+	{
+		if (const IOnlineSessionPtr SessionPtrRef = SubsystemRef->GetSessionInterface())
+		{
+			SessionPtrRef->StartSession(SessionName);
+		}
+	}
+}
+
+void UEOSKitSubsystem::EndSession(FName SessionName)
+{
+	if (const IOnlineSubsystem* SubsystemRef = IOnlineSubsystem::Get())
+	{
+		if (const IOnlineSessionPtr SessionPtrRef = SubsystemRef->GetSessionInterface())
+		{
+			SessionPtrRef->EndSession(SessionName);
+		}
+	}
+}
+
+// ========================================
+// Social Features
+// ========================================
+
+bool UEOSKitSubsystem::ShowFriendUserInterface()
+{
+	const IOnlineSubsystem* OnlineSubsystem = IOnlineSubsystem::Get();
+	if (OnlineSubsystem != nullptr)
+	{
+		const IOnlineExternalUIPtr ExternalUI = OnlineSubsystem->GetExternalUIInterface();
+		if (ExternalUI.IsValid())
+		{
+			return ExternalUI->ShowFriendsUI(0);
+		}
+		else
+		{
+			return false;
+		}
+	}
+	else
+	{
+		return false;
+	}
+}
+
+// ========================================
+// Statistics
+// ========================================
+
+void UEOSKitSubsystem::UpdateStats(const FBP_EOSKit_UpdateStat_Callback& Result, const FString& StatName, int32 Amount)
+{
+	UpdateStat_CallbackBP = Result;
+	if (const IOnlineSubsystem* SubsystemRef = IOnlineSubsystem::Get())
+	{
+		if (const IOnlineIdentityPtr IdentityPointerRef = SubsystemRef->GetIdentityInterface())
+		{
+			if (const IOnlineStatsPtr StatsPointerRef = SubsystemRef->GetStatsInterface())
+			{
+				FOnlineStatsUserUpdatedStats StatVar = FOnlineStatsUserUpdatedStats(IdentityPointerRef->GetUniquePlayerId(0).ToSharedRef());
+				StatVar.Stats.Add(StatName, FOnlineStatUpdate(Amount, FOnlineStatUpdate::EOnlineStatModificationType::Sum));
+				TArray<FOnlineStatsUserUpdatedStats> StatArray;
+				StatArray.Add(StatVar);
+				StatsPointerRef->UpdateStats(IdentityPointerRef->GetUniquePlayerId(0).ToSharedRef(), StatArray, FOnlineStatsUpdateStatsComplete::CreateUObject(this, &UEOSKitSubsystem::OnUpdateStatsCompleted));
+			}
+		}
+	}
+}
+
+void UEOSKitSubsystem::GetStats(const FBP_EOSKit_GetStats_Callback& Result, const TArray<FString>& StatName)
+{
+	GetStats_CallbackBP = Result;
+	if (const IOnlineSubsystem* SubsystemRef = IOnlineSubsystem::Get())
+	{
+		if (const IOnlineIdentityPtr IdentityPointerRef = SubsystemRef->GetIdentityInterface())
+		{
+			if (const IOnlineStatsPtr StatsPointerRef = SubsystemRef->GetStatsInterface())
+			{
+				TArray<TSharedRef<const FUniqueNetId>> Usersvar;
+				Usersvar.Add(IdentityPointerRef->GetUniquePlayerId(0).ToSharedRef());
+				StatsPointerRef->QueryStats(IdentityPointerRef->GetUniquePlayerId(0).ToSharedRef(), Usersvar, StatName, FOnlineStatsQueryUsersStatsComplete::CreateUObject(this, &UEOSKitSubsystem::OnGetStatsCompleted));
+			}
+		}
+	}
+}
+
+// ========================================
+// Player Data
+// ========================================
+
+void UEOSKitSubsystem::SetPlayerData(const FBP_EOSKit_WriteFile_Callback& Result, const FString& FileName, USaveGame* SavedGame)
+{
+	WriteFile_CallbackBP = Result;
+	if (SavedGame)
+	{
+		TArray<uint8> LocalArray;
+		UGameplayStatics::SaveGameToMemory(SavedGame, LocalArray);
+		if (LocalArray.Num() > 0)
+		{
+			if (const IOnlineSubsystem* SubsystemRef = IOnlineSubsystem::Get())
+			{
+				if (const IOnlineIdentityPtr IdentityPointerRef = SubsystemRef->GetIdentityInterface())
+				{
+					if (const IOnlineUserCloudPtr CloudPointerRef = SubsystemRef->GetUserCloudInterface())
+					{
+						const TSharedPtr<const FUniqueNetId> UserIDRef = IdentityPointerRef->GetUniquePlayerId(0).ToSharedRef();
+						CloudPointerRef->OnWriteUserFileCompleteDelegates.AddUObject(this, &UEOSKitSubsystem::OnWriteFileComplete);
+						CloudPointerRef->WriteUserFile(*UserIDRef, FileName, LocalArray);
+					}
+					else
+					{
+						WriteFile_CallbackBP.ExecuteIfBound(false);
+					}
+				}
+				else
+				{
+					WriteFile_CallbackBP.ExecuteIfBound(false);
+				}
+			}
+			else
+			{
+				WriteFile_CallbackBP.ExecuteIfBound(false);
+			}
+		}
+		else
+		{
+			WriteFile_CallbackBP.ExecuteIfBound(false);
+		}
+	}
+	else
+	{
+		WriteFile_CallbackBP.ExecuteIfBound(false);
+	}
+}
+
+void UEOSKitSubsystem::GetPlayerData(const FBP_EOSKit_GetFile_Callback& Result, const FString& FileName)
+{
+	GetFile_CallbackBP = Result;
+	if (const IOnlineSubsystem* SubsystemRef = IOnlineSubsystem::Get())
+	{
+		if (const IOnlineIdentityPtr IdentityPointerRef = SubsystemRef->GetIdentityInterface())
+		{
+			if (const IOnlineUserCloudPtr CloudPointerRef = SubsystemRef->GetUserCloudInterface())
+			{
+				TSharedPtr<const FUniqueNetId> UserIDRef = IdentityPointerRef->GetUniquePlayerId(0).ToSharedRef();
+				CloudPointerRef->OnReadUserFileCompleteDelegates.AddUObject(this, &UEOSKitSubsystem::OnGetFileComplete);
+				CloudPointerRef->ReadUserFile(*UserIDRef, FileName);
+			}
+			else
+			{
+				GetFile_CallbackBP.ExecuteIfBound(false, nullptr);
+			}
+		}
+		else
+		{
+			GetFile_CallbackBP.ExecuteIfBound(false, nullptr);
+		}
+	}
+	else
+	{
+		GetFile_CallbackBP.ExecuteIfBound(false, nullptr);
+	}
+}
+
+// ========================================
+// Title Files
+// ========================================
+
+void UEOSKitSubsystem::EnumerateTitleFiles(const FBP_EOSKit_TitleFileList_Callback& Result)
+{
+	TitleFileList_CallbackBP = Result;
+	if (const IOnlineSubsystem* SubsystemRef = IOnlineSubsystem::Get())
+	{
+		if (const IOnlineIdentityPtr IdentityPointerRef = SubsystemRef->GetIdentityInterface())
+		{
+			if (const IOnlineTitleFilePtr TitleFilePtr = SubsystemRef->GetTitleFileInterface())
+			{
+				TitleFilePtr->OnEnumerateFilesCompleteDelegates.AddUObject(this, &UEOSKitSubsystem::OnTitleFileListComplete);
+				TitleFilePtr->EnumerateFiles();
+			}
+			else
+			{
+				TitleFileList_CallbackBP.ExecuteIfBound(false, TEXT("Failed to get Title File Interface"));
+			}
+		}
+		else
+		{
+			TitleFileList_CallbackBP.ExecuteIfBound(false, TEXT("Failed to get Online Identity"));
+		}
+	}
+	else
+	{
+		TitleFileList_CallbackBP.ExecuteIfBound(false, TEXT("Failed to get Online Subsystem"));
+	}
+}
+
+TArray<FFileListStruct> UEOSKitSubsystem::GetTitleFileList()
+{
+	if (const IOnlineSubsystem* SubsystemRef = IOnlineSubsystem::Get())
+	{
+		if (const IOnlineIdentityPtr IdentityPointerRef = SubsystemRef->GetIdentityInterface())
+		{
+			if (const IOnlineTitleFilePtr TitleFilePtr = SubsystemRef->GetTitleFileInterface())
+			{
+				TArray<FCloudFileHeader> Files;
+				TitleFilePtr->GetFileList(Files);
+				TArray<FFileListStruct> Local_FileList;
+				for (int i = 0; i < Files.Num(); i++)
+				{
+					FFileListStruct Temp;
+					Temp.FileName = Files[i].FileName;
+					Temp.FileSize = Files[i].FileSize;
+					Temp.Hash = Files[i].Hash;
+					Temp.HashType = Files[i].HashType;
+					Temp.iChunkID = Files[i].ChunkID;
+					Temp.DLName = Files[i].DLName;
+					Temp.ExternalStorageIds = Files[i].ExternalStorageIds;
+					Temp.URL = Files[i].URL;
+					Local_FileList.Add(Temp);
+				}
+				return Local_FileList;
+			}
+		}
+	}
+	return TArray<FFileListStruct>();
+}
+
+void UEOSKitSubsystem::GetTitleFile(const FBP_EOSKit_GetTitleFile_Callback& Result, const FString& FileName)
+{
+	GetTitleFile_CallbackBP = Result;
+	if (const IOnlineSubsystem* SubsystemRef = IOnlineSubsystem::Get())
+	{
+		if (const IOnlineIdentityPtr IdentityPointerRef = SubsystemRef->GetIdentityInterface())
+		{
+			if (const IOnlineTitleFilePtr TitleFilePtr = SubsystemRef->GetTitleFileInterface())
+			{
+				TitleFilePtr->OnReadFileCompleteDelegates.AddUObject(this, &UEOSKitSubsystem::OnTitleFileComplete);
+				TitleFilePtr->ReadFile(FileName);
+		return;
+			}
+		}
+	}
+	GetTitleFile_CallbackBP.ExecuteIfBound(false);
+}
+
+TArray<uint8> UEOSKitSubsystem::GetTitleFileContent(const FString& FileName)
+{
+	if (const IOnlineSubsystem* SubsystemRef = IOnlineSubsystem::Get())
+	{
+		if (const IOnlineIdentityPtr IdentityPointerRef = SubsystemRef->GetIdentityInterface())
+		{
+			if (const IOnlineTitleFilePtr TitleFilePtr = SubsystemRef->GetTitleFileInterface())
+			{
+				TArray<uint8> TitleFileContent;
+				TitleFilePtr->GetFileContents(FileName, TitleFileContent);
+				return TitleFileContent;
+			}
+		}
+	}
+	return TArray<uint8>();
+}
+
+// ========================================
+// Leaderboard
+// ========================================
+
+void UEOSKitSubsystem::GetLeaderboard(const FBP_EOSKit_GetFile_Callback& Result, FName LeaderboardName, int32 Rank, int32 Range)
+{
+	if (const IOnlineSubsystem* SubsystemRef = IOnlineSubsystem::Get())
+	{
+		if (IOnlineIdentityPtr Identity = SubsystemRef->GetIdentityInterface())
+		{
+			if (const IOnlineLeaderboardsPtr Leaderboards = SubsystemRef->GetLeaderboardsInterface())
+			{
+				ReadRef = MakeShared<FOnlineLeaderboardRead, ESPMode::ThreadSafe>();
+#if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 5
+				FString LeaderboardNameString = LeaderboardName.ToString();
+				ReadRef->LeaderboardName = LeaderboardNameString;
+#else
+				ReadRef->LeaderboardName = LeaderboardName;
+#endif
+				Leaderboards->AddOnLeaderboardReadCompleteDelegate_Handle(FOnLeaderboardReadComplete::FDelegate::CreateUObject(this, &UEOSKitSubsystem::OnLeaderboardListCompleted));
+				Leaderboards->ReadLeaderboardsAroundRank(Rank, Range, ReadRef);
+			}
+		}
+	}
+}
+
+// ========================================
+// Store
+// ========================================
+
+void UEOSKitSubsystem::PurchaseItem(const FBP_EOSKit_PurchaseOffer_Callback& Result, const FString& ItemID)
+{
+	PurchaseOffer_CallbackBP = Result;
+	if (const IOnlineSubsystem* SubsystemRef = Online::GetSubsystem(this->GetWorld()))
+	{
+		if (const IOnlineStoreV2Ptr StoreV2Ptr = SubsystemRef->GetStoreV2Interface())
+		{
+			if (const IOnlineIdentityPtr IdentityPointerRef = SubsystemRef->GetIdentityInterface())
+			{
+				if (const IOnlinePurchasePtr Purchase = SubsystemRef->GetPurchaseInterface())
+				{
+					FPurchaseCheckoutRequest Request = {};
+					Request.AddPurchaseOffer(TEXT(""), ItemID, 1);
+
+					Purchase->Checkout(*IdentityPointerRef->GetUniquePlayerId(0).Get(),
+						Request,
+						FOnPurchaseCheckoutComplete::CreateLambda(
+							[this](
+							const FOnlineError& Result,
+							const TSharedRef<FPurchaseReceipt>& Receipt)
+							{
+								if (Result.WasSuccessful())
+								{
+									PurchaseOffer_CallbackBP.ExecuteIfBound(true);
+								}
+								else
+								{
+									PurchaseOffer_CallbackBP.ExecuteIfBound(false);
+								}
+							})
+					);
+				}
+				else
+				{
+					PurchaseOffer_CallbackBP.ExecuteIfBound(false);
+				}
+			}
+			else
+			{
+				PurchaseOffer_CallbackBP.ExecuteIfBound(false);
+			}
+		}
+		else
+		{
+			PurchaseOffer_CallbackBP.ExecuteIfBound(false);
+		}
+	}
+	else
+	{
+		PurchaseOffer_CallbackBP.ExecuteIfBound(false);
+	}
+}
+
+void UEOSKitSubsystem::QueryOffers(const FBP_EOSKit_GetOffers_Callback& Result)
+{
+	GetOffers_CallbackBP = Result;
+	if (const IOnlineSubsystem* SubsystemRef = Online::GetSubsystem(this->GetWorld()))
+	{
+		if (const IOnlineStoreV2Ptr StoreV2Ptr = SubsystemRef->GetStoreV2Interface())
+		{
+			if (const IOnlineIdentityPtr IdentityPointerRef = SubsystemRef->GetIdentityInterface())
+			{
+				StoreV2Ptr->QueryOffersByFilter(*IdentityPointerRef->GetUniquePlayerId(0).Get(), FOnlineStoreFilter(),
+					FOnQueryOnlineStoreOffersComplete::CreateLambda([
+						StoreV2Wk = TWeakPtr<IOnlineStoreV2, ESPMode::ThreadSafe>(StoreV2Ptr), this](
+						bool bWasSuccessful,
+						const TArray<FUniqueOfferId>& OfferIds,
+						const FString& Error)
+						{
+							if (const auto StoreV2 = StoreV2Wk.Pin())
+							{
+								if (bWasSuccessful && StoreV2.IsValid())
+								{
+									TArray<FOnlineStoreOfferRef> Offers;
+									StoreV2->GetOffers(Offers);
+									TArray<FOffersStruct> OfferArray;
+									for (int32 i = 0; i < Offers.Num(); ++i)
+									{
+										FOffersStruct Offer;
+										Offer.ItemID = Offers[i]->OfferId;
+										Offer.ItemName = Offers[i]->Title;
+										Offer.Description = Offers[i]->Description;
+										Offer.ExpirationDate = Offers[i]->ExpirationDate;
+										Offer.LongDescription = Offers[i]->LongDescription;
+										Offer.NumericPrice = Offers[i]->NumericPrice;
+										Offer.PriceText = Offers[i]->PriceText;
+										Offer.RegularPrice = Offers[i]->RegularPrice;
+										Offer.ReleaseDate = Offers[i]->ReleaseDate;
+										Offer.RegularPriceText = Offers[i]->RegularPriceText;
+										OfferArray.Add(Offer);
+									}
+									GetOffers_CallbackBP.ExecuteIfBound(true, OfferArray);
+								}
+								else
+								{
+									GetOffers_CallbackBP.ExecuteIfBound(false, TArray<FOffersStruct>());
+								}
+							}
+							else
+							{
+								GetOffers_CallbackBP.ExecuteIfBound(false, TArray<FOffersStruct>());
+							}
+						}));
+			}
+			else
+			{
+				GetOffers_CallbackBP.ExecuteIfBound(false, TArray<FOffersStruct>());
+			}
+		}
+		else
+		{
+			GetOffers_CallbackBP.ExecuteIfBound(false, TArray<FOffersStruct>());
+		}
+	}
+	else
+	{
+		GetOffers_CallbackBP.ExecuteIfBound(false, TArray<FOffersStruct>());
+	}
+}
+
+void UEOSKitSubsystem::GetOwnedItems(const FBP_EOSKit_GetOwnedItems_Callback& Result)
+{
+	GetOwnedItems_CallbackBP = Result;
+	if (const IOnlineSubsystem* SubsystemRef = Online::GetSubsystem(this->GetWorld()))
+	{
+		if (const IOnlineStoreV2Ptr StoreV2Ptr = SubsystemRef->GetStoreV2Interface())
+		{
+			if (const IOnlineIdentityPtr IdentityPointerRef = SubsystemRef->GetIdentityInterface())
+			{
+				if (const IOnlinePurchasePtr Purchase = SubsystemRef->GetPurchaseInterface())
+				{
+					Purchase->QueryReceipts(*IdentityPointerRef->GetUniquePlayerId(0).Get(), false,
+						FOnQueryReceiptsComplete::CreateLambda(
+							[this, SubsystemRef, IdentityPointerRef, Purchase](const FOnlineError& Error)
+							{
+								if (Error.WasSuccessful())
+								{
+									if (Purchase)
+									{
+										TArray<FString> ItemNames;
+										TArray<FPurchaseReceipt> Receipts;
+										Purchase->GetReceipts(*IdentityPointerRef->GetUniquePlayerId(0).Get(), Receipts);
+										for (int i = 0; i < Receipts.Num(); i++)
+										{
+											ItemNames.Add(Receipts[i].ReceiptOffers[0].LineItems[0].ItemName);
+										}
+										GetOwnedItems_CallbackBP.ExecuteIfBound(true, ItemNames);
+									}
+									else
+									{
+										GetOwnedItems_CallbackBP.ExecuteIfBound(false, TArray<FString>());
+									}
+								}
+								else
+								{
+									GetOwnedItems_CallbackBP.ExecuteIfBound(false, TArray<FString>());
+								}
+							}));
+				}
+				else
+				{
+					GetOwnedItems_CallbackBP.ExecuteIfBound(false, TArray<FString>());
+				}
+			}
+			else
+			{
+				GetOwnedItems_CallbackBP.ExecuteIfBound(false, TArray<FString>());
+			}
+		}
+		else
+		{
+			GetOwnedItems_CallbackBP.ExecuteIfBound(false, TArray<FString>());
+		}
+	}
+	else
+	{
+		GetOwnedItems_CallbackBP.ExecuteIfBound(false, TArray<FString>());
+	}
+}
+
+// ========================================
+// Utility
+// ========================================
+
+FString UEOSKitSubsystem::GenerateSessionCode(int32 CodeLength) const
+{
+	FString SessionCode;
+
+	for (int32 i = 0; i < CodeLength; i++)
+	{
+		const int32 RandomNumber = FMath::RandRange(0, 35);
+
+		// Convert the random number into a character (0-9, A-Z)
+		TCHAR RandomChar = (RandomNumber < 10) ? TCHAR('0' + RandomNumber) : TCHAR('A' + (RandomNumber - 10));
+
+		// Append the character to the session code
+		SessionCode.AppendChar(RandomChar);
+	}
+
+	return SessionCode;
+}
+
+// ========================================
+// Callback Functions
+// ========================================
+
+void UEOSKitSubsystem::LoginCallback(int32 LocalUserNum, bool bWasSuccess, const FUniqueNetId& UserId, const FString& Error) const
+{
+	LoginCallBackBP.ExecuteIfBound(bWasSuccess, Error);
+}
+
+void UEOSKitSubsystem::LogoutCallback(int32 LocalUserNum, bool bWasSuccess) const
+{
+	LogoutCallbackBP.ExecuteIfBound(bWasSuccess);
+}
+
+void UEOSKitSubsystem::OnCreateSessionCompleted(FName SessionName, bool bWasSuccessful) const
+{
+	if (bWasSuccessful)
+	{
+		if (const IOnlineSubsystem* SubsystemRef = IOnlineSubsystem::Get())
+		{
+			if (const IOnlineSessionPtr SessionPtrRef = SubsystemRef->GetSessionInterface())
+			{
+				if (const IOnlineIdentityPtr IdentityPointerRef = SubsystemRef->GetIdentityInterface())
+				{
+					CreateSession_CallbackBP.ExecuteIfBound(bWasSuccessful, SessionName);
+				}
+			}
+			else
+			{
+				CreateSession_CallbackBP.ExecuteIfBound(false, SessionName);
+			}
+		}
+		else
+		{
+			CreateSession_CallbackBP.ExecuteIfBound(false, SessionName);
+		}
+	}
+	else
+	{
+		CreateSession_CallbackBP.ExecuteIfBound(false, SessionName);
+	}
+}
+
+void UEOSKitSubsystem::OnCreateLobbyCompleted(FName SessionName, bool bWasSuccessful) const
+{
+	if (bWasSuccessful)
+	{
+		if (const IOnlineSubsystem* SubsystemRef = IOnlineSubsystem::Get())
+		{
+			if (const IOnlineSessionPtr SessionPtrRef = SubsystemRef->GetSessionInterface())
+			{
+				if (const IOnlineIdentityPtr IdentityPointerRef = SubsystemRef->GetIdentityInterface())
+				{
+					SessionPtrRef->RegisterPlayer(SessionName, *IdentityPointerRef->GetUniquePlayerId(0), false);
+					CreateLobby_CallbackBP.ExecuteIfBound(bWasSuccessful, SessionName);
+				}
+			}
+			else
+			{
+				CreateLobby_CallbackBP.ExecuteIfBound(false, SessionName);
+			}
+		}
+		else
+		{
+			CreateLobby_CallbackBP.ExecuteIfBound(false, SessionName);
+		}
+	}
+	else
+	{
+		CreateLobby_CallbackBP.ExecuteIfBound(false, SessionName);
+	}
+}
+
+void UEOSKitSubsystem::OnFindSessionCompleted(bool bWasSuccess) const
+{
+	if (const IOnlineSubsystem* OnlineSub = IOnlineSubsystem::Get())
+	{
+		TArray<FEOSKitSessionFindStruct> SessionResult_Array;
+		IOnlineSessionPtr Sessions = OnlineSub->GetSessionInterface();
+		if (Sessions.IsValid())
+		{
+			if (SessionSearch->SearchResults.Num() > 0)
+			{
+				for (int32 SearchIdx = 0; SearchIdx < SessionSearch->SearchResults.Num(); SearchIdx++)
+				{
+					FBlueprintSessionResult SessionResult;
+					SessionResult.OnlineResult = SessionSearch->SearchResults[SearchIdx];
+					FOnlineSessionSettings SessionSettings = SessionResult.OnlineResult.Session.SessionSettings;
+					TMap<FName, FString> AllSettingsWithData;
+					TMap<FName, FOnlineSessionSetting>::TIterator It(SessionSettings.Settings);
+
+					TMap<FString, FEOSKitAttributeData> LocalArraySettings;
+					while (It)
+					{
+						const FName& SettingName = It.Key();
+						const FOnlineSessionSetting& Setting = It.Value();
+						FString SettingValueString = Setting.Data.ToString();
+						LocalArraySettings.Add(*SettingName.ToString(), FEOSKitAttributeData(Setting.Data));
+						++It;
+					}
+					FEOSKitSessionFindStruct LocalStruct;
+					LocalStruct.SessionName = TEXT("GameSession");
+					LocalStruct.CurrentNumberOfPlayers = (SessionResult.OnlineResult.Session.SessionSettings.NumPublicConnections + SessionResult.OnlineResult.Session.SessionSettings.NumPrivateConnections) - (SessionResult.OnlineResult.Session.NumOpenPublicConnections + SessionResult.OnlineResult.Session.NumOpenPrivateConnections);
+					LocalStruct.MaxNumberOfPlayers = SessionResult.OnlineResult.Session.SessionSettings.NumPublicConnections + SessionResult.OnlineResult.Session.SessionSettings.NumPrivateConnections;
+					LocalStruct.SessionResult = SessionResult;
+					LocalStruct.SessionSettings = LocalArraySettings;
+					SessionResult_Array.Add(LocalStruct);
+				}
+			}
+		}
+
+		FindSession_CallbackBP.ExecuteIfBound(bWasSuccess, SessionResult_Array);
+	}
+}
+
+void UEOSKitSubsystem::OnJoinSessionCompleted(FName SessionName, EOnJoinSessionCompleteResult::Type Result)
+{
+	if (Result == EOnJoinSessionCompleteResult::Success)
+	{
+		if (APlayerController* PlayerControllerRef = UGameplayStatics::GetPlayerController(GetWorld(), 0))
+		{
+			if (const IOnlineSubsystem* SubsystemRef = IOnlineSubsystem::Get())
+			{
+				if (const IOnlineSessionPtr SessionPtrRef = SubsystemRef->GetSessionInterface())
+				{
+					FString JoinAddress;
+					SessionPtrRef->GetResolvedConnectString(SessionName, JoinAddress);
+					if (Local_bIsDedicatedServerSession)
+					{
+						TArray<FString> IpPortArray;
+						JoinAddress.ParseIntoArray(IpPortArray, TEXT(":"), true);
+						const FString IpAddress = IpPortArray[0];
+						if (LocalPortInfo.IsEmpty())
+						{
+							LocalPortInfo = TEXT("7777");
+						}
+						const FString NewCustomIP = IpAddress + TEXT(":") + LocalPortInfo;
+						JoinAddress = NewCustomIP;
+					}
+					if (!JoinAddress.IsEmpty())
+					{
+						PlayerControllerRef->ClientTravel(JoinAddress, ETravelType::TRAVEL_Absolute);
+						JoinSession_CallbackBP.ExecuteIfBound(true);
+						return;
+					}
+					else
+					{
+						JoinSession_CallbackBP.ExecuteIfBound(false);
+						return;
+					}
+				}
+				else
+				{
+					JoinSession_CallbackBP.ExecuteIfBound(false);
+					return;
+				}
+			}
+			else
+			{
+				JoinSession_CallbackBP.ExecuteIfBound(false);
+				return;
+			}
+		}
+		else
+		{
+			JoinSession_CallbackBP.ExecuteIfBound(false);
 			return;
 		}
-
-		EOS_HConnect ConnectHandle = EOS_Platform_GetConnectInterface(Self->PlatformHandle);
-
-		EOS_Connect_CreateUserOptions CreateUserOptions = {};
-		CreateUserOptions.ApiVersion = EOS_CONNECT_CREATEUSER_API_LATEST;
-		CreateUserOptions.ContinuanceToken = Data->ContinuanceToken;
-
-		EOS_Connect_CreateUser(ConnectHandle, &CreateUserOptions, Self, &UEOSKitSubsystem::OnAutoCreateUserComplete);
 	}
 	else
 	{
-		UE_LOG(LogTemp, Error, TEXT("EOSKit: Auto-login to Connect failed: %s"), UTF8_TO_TCHAR(EOS_EResult_ToString(Data->ResultCode)));
+		UE_LOG(LogTemp, Error, TEXT("Join Session Error with Reason of %d"), Result);
+		JoinSession_CallbackBP.ExecuteIfBound(false);
+		return;
+	}
+	JoinSession_CallbackBP.ExecuteIfBound(false);
+}
+
+void UEOSKitSubsystem::OnDestroySessionCompleted(FName SessionName, bool bWasSuccess) const
+{
+	DestroySession_CallbackBP.ExecuteIfBound(bWasSuccess);
+}
+
+void UEOSKitSubsystem::OnUpdateStatsCompleted(const FOnlineError& Result) const
+{
+	if (Result == FOnlineError::Success())
+	{
+		UpdateStat_CallbackBP.ExecuteIfBound(true);
+	}
+	else
+	{
+		UpdateStat_CallbackBP.ExecuteIfBound(false);
 	}
 }
 
-void EOS_CALL UEOSKitSubsystem::OnAutoCreateUserComplete(const EOS_Connect_CreateUserCallbackInfo* Data)
+void UEOSKitSubsystem::OnGetStatsCompleted(const FOnlineError& ResultState, const TArray<TSharedRef<const FOnlineStatsUserStats>>& UsersStatsResult) const
 {
-	if (!Data || !Data->ClientData)
+	if (ResultState.WasSuccessful())
 	{
-		return;
-	}
-
-	UEOSKitSubsystem* Self = static_cast<UEOSKitSubsystem*>(Data->ClientData);
-
-	if (Data->ResultCode == EOS_EResult::EOS_Success)
-	{
-		Self->ProductUserId = Data->LocalUserId;
-
-		// Convert Product User ID to string for logging
-		char ProductUserIdStr[EOS_PRODUCTUSERID_MAX_LENGTH + 1];
-		int32 ProductUserIdStrSize = sizeof(ProductUserIdStr);
-		EOS_ProductUserId_ToString(Data->LocalUserId, ProductUserIdStr, &ProductUserIdStrSize);
-
-		UE_LOG(LogTemp, Log, TEXT("EOSKit: User created successfully. Product User ID: %s"), UTF8_TO_TCHAR(ProductUserIdStr));
+		TArray<FEOSKitStats> LocalStatsArray;
+		for (const auto& StatsVar : UsersStatsResult)
+		{
+			for (auto StoredValueRef : StatsVar->Stats)
+			{
+				FString Keyname = StoredValueRef.Key;
+				int32 Value;
+				StoredValueRef.Value.GetValue(Value);
+				FEOSKitStats LocalStats;
+				LocalStats.StatsName = Keyname;
+				LocalStats.StatsValue = FString::FromInt(Value);
+				LocalStatsArray.Add(LocalStats);
+			}
+		}
+		GetStats_CallbackBP.ExecuteIfBound(true, LocalStatsArray);
 	}
 	else
 	{
-		UE_LOG(LogTemp, Error, TEXT("EOSKit: Failed to create user: %s"), UTF8_TO_TCHAR(EOS_EResult_ToString(Data->ResultCode)));
+		GetStats_CallbackBP.ExecuteIfBound(false, TArray<FEOSKitStats>());
+		UE_LOG(LogTemp, Warning, TEXT("Getting stats failed with error - %s"), *ResultState.ToLogString());
 	}
+}
+
+void UEOSKitSubsystem::OnWriteFileComplete(bool bSuccess, const FUniqueNetId& UserID, const FString& FileName) const
+{
+	WriteFile_CallbackBP.ExecuteIfBound(true);
+}
+
+void UEOSKitSubsystem::OnGetFileComplete(bool bSuccess, const FUniqueNetId& UserID, const FString& FileName) const
+{
+	if (bSuccess)
+	{
+		if (const IOnlineSubsystem* SubsystemRef = IOnlineSubsystem::Get())
+		{
+			if (const IOnlineIdentityPtr IdentityPointerRef = SubsystemRef->GetIdentityInterface())
+			{
+				if (const IOnlineUserCloudPtr CloudPointerRef = SubsystemRef->GetUserCloudInterface())
+				{
+					TSharedPtr<const FUniqueNetId> UserIDRef = IdentityPointerRef->GetUniquePlayerId(0).ToSharedRef();
+					TArray<uint8> FileContents;
+					CloudPointerRef->GetFileContents(*UserIDRef, FileName, FileContents);
+					if (FileContents.Num() > 0)
+					{
+						USaveGame* LocalSaveGame = UGameplayStatics::LoadGameFromMemory(FileContents);
+						GetFile_CallbackBP.ExecuteIfBound(true, LocalSaveGame);
+					}
+					else
+					{
+						GetFile_CallbackBP.ExecuteIfBound(false, nullptr);
+					}
+				}
+				else
+				{
+					GetFile_CallbackBP.ExecuteIfBound(false, nullptr);
+				}
+			}
+			else
+			{
+				GetFile_CallbackBP.ExecuteIfBound(false, nullptr);
+			}
+		}
+		else
+		{
+			GetFile_CallbackBP.ExecuteIfBound(false, nullptr);
+		}
+	}
+	else
+	{
+		GetFile_CallbackBP.ExecuteIfBound(false, nullptr);
+	}
+}
+
+void UEOSKitSubsystem::OnTitleFileListComplete(bool bSuccess, const FString& Error) const
+{
+	TitleFileList_CallbackBP.ExecuteIfBound(bSuccess, Error);
+}
+
+void UEOSKitSubsystem::OnTitleFileComplete(bool bSuccess, const FString& FileName) const
+{
+	GetTitleFile_CallbackBP.ExecuteIfBound(bSuccess);
+}
+
+void UEOSKitSubsystem::OnLeaderboardListCompleted(bool bWasSuccess) const
+{
+	// Leaderboard read completed - can be extended if needed
+}
+
+// ========================================
+// EOS SDK Access
+// ========================================
+
+EOS_HPlatform UEOSKitSubsystem::GetPlatformHandle() const
+{
+#if WITH_EOS_SDK
+	if (IEOSSDKManager* SDKManager = IEOSSDKManager::Get())
+	{
+		return static_cast<EOS_HPlatform>(SDKManager->GetPlatformHandle());
+	}
+#endif
+	return nullptr;
+}
+
+EOS_ProductUserId UEOSKitSubsystem::GetProductUserId(int32 LocalUserNum) const
+{
+#if WITH_EOS_SDK
+	if (const IOnlineSubsystem* SubsystemRef = IOnlineSubsystem::Get())
+	{
+		if (const IOnlineIdentityPtr IdentityPtr = SubsystemRef->GetIdentityInterface())
+		{
+			if (const TSharedPtr<const FUniqueNetId> UserId = IdentityPtr->GetUniquePlayerId(LocalUserNum))
+			{
+				// Convert FUniqueNetId to EOS_ProductUserId
+				// This is a simplified version - you may need to adjust based on your FUniqueNetId implementation
+				FString UserIdString = UserId->ToString();
+				if (!UserIdString.IsEmpty())
+				{
+					return EOS_ProductUserId_FromString(TCHAR_TO_UTF8(*UserIdString));
+				}
+			}
+		}
+	}
+#endif
+	return nullptr;
 }

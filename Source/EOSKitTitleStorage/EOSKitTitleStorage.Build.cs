@@ -12,7 +12,15 @@ public class EOSKitTitleStorage : ModuleRules
 			new string[]
 			{
 				"Core",
-				"EOSSDK"
+				"CoreUObject",
+				"Engine",
+				"OnlineSubsystem",
+				"OnlineSubsystemUtils",
+				"EOSSDK",
+				"EOSShared",
+				"EOSKit",
+				"EOSKitAuth",
+				"EOSKitShared"
 			}
 		);
 			
@@ -20,13 +28,9 @@ public class EOSKitTitleStorage : ModuleRules
 		PrivateDependencyModuleNames.AddRange(
 			new string[]
 			{
-				"CoreUObject",
-				"Engine",
 				"Slate",
 				"SlateCore",
-				"Projects",
-				"EOSShared",
-				"EOSKit"
+				"Projects"
 			}
 		);
 	}

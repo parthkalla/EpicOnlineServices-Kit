@@ -408,6 +408,132 @@ void UEOSKitLobbySubsystem::UnregisterLobbyUpdateReceivedNotification()
 	}
 }
 
+bool UEOSKitLobbySubsystem::RegisterLobbyMemberUpdateReceivedNotification(const FEOSKitOnLobbyMemberUpdateReceived& Callback)
+{
+	UEOSKitSubsystem* EOSKitSubsystem = GetEOSKitSubsystem();
+	if (!EOSKitSubsystem || !EOSKitSubsystem->GetPlatformHandle())
+	{
+		return false;
+	}
+
+	EOS_HPlatform PlatformHandle = EOSKitSubsystem->GetPlatformHandle();
+	EOS_HLobby LobbyHandle = EOS_Platform_GetLobbyInterface(PlatformHandle);
+	
+	if (!LobbyHandle)
+	{
+		return false;
+	}
+
+	if (LobbyMemberUpdateReceivedNotificationId != 0)
+	{
+		return true;
+	}
+
+	OnLobbyMemberUpdateReceivedDelegate = Callback;
+
+	EOS_Lobby_AddNotifyLobbyMemberUpdateReceivedOptions Options = {};
+	Options.ApiVersion = EOS_LOBBY_ADDNOTIFYLOBBYMEMBERUPDATERECEIVED_API_LATEST;
+	
+	LobbyMemberUpdateReceivedNotificationId = EOS_Lobby_AddNotifyLobbyMemberUpdateReceived(
+		LobbyHandle,
+		&Options,
+		this,
+		[](const EOS_Lobby_LobbyMemberUpdateReceivedCallbackInfo* Data)
+		{
+			UEOSKitLobbySubsystem::OnLobbyMemberUpdateReceivedCallback(Data);
+		}
+	);
+	
+	UE_LOG(LogTemp, Log, TEXT("EOSKit Lobby: Registered for lobby member update received notifications"));
+	return LobbyMemberUpdateReceivedNotificationId != 0;
+}
+
+void UEOSKitLobbySubsystem::UnregisterLobbyMemberUpdateReceivedNotification()
+{
+	UEOSKitSubsystem* EOSKitSubsystem = GetEOSKitSubsystem();
+	if (!EOSKitSubsystem || !EOSKitSubsystem->GetPlatformHandle())
+	{
+		return;
+	}
+
+	EOS_HPlatform PlatformHandle = EOSKitSubsystem->GetPlatformHandle();
+	EOS_HLobby LobbyHandle = EOS_Platform_GetLobbyInterface(PlatformHandle);
+	
+	if (!LobbyHandle)
+	{
+		return;
+	}
+
+	if (LobbyMemberUpdateReceivedNotificationId != 0)
+	{
+		EOS_Lobby_RemoveNotifyLobbyMemberUpdateReceived(LobbyHandle, LobbyMemberUpdateReceivedNotificationId);
+		LobbyMemberUpdateReceivedNotificationId = 0;
+	}
+}
+
+bool UEOSKitLobbySubsystem::RegisterLobbyInviteRejectedNotification(const FEOSKitOnLobbyInviteRejected& Callback)
+{
+	UEOSKitSubsystem* EOSKitSubsystem = GetEOSKitSubsystem();
+	if (!EOSKitSubsystem || !EOSKitSubsystem->GetPlatformHandle())
+	{
+		return false;
+	}
+
+	EOS_HPlatform PlatformHandle = EOSKitSubsystem->GetPlatformHandle();
+	EOS_HLobby LobbyHandle = EOS_Platform_GetLobbyInterface(PlatformHandle);
+	
+	if (!LobbyHandle)
+	{
+		return false;
+	}
+
+	if (LobbyInviteRejectedNotificationId != 0)
+	{
+		return true;
+	}
+
+	OnLobbyInviteRejectedDelegate = Callback;
+
+	EOS_Lobby_AddNotifyLobbyInviteRejectedOptions Options = {};
+	Options.ApiVersion = EOS_LOBBY_ADDNOTIFYLOBBYINVITEREJECTED_API_LATEST;
+	
+	LobbyInviteRejectedNotificationId = EOS_Lobby_AddNotifyLobbyInviteRejected(
+		LobbyHandle,
+		&Options,
+		this,
+		[](const EOS_Lobby_LobbyInviteRejectedCallbackInfo* Data)
+		{
+			UEOSKitLobbySubsystem::OnLobbyInviteRejectedCallback(Data);
+		}
+	);
+	
+	UE_LOG(LogTemp, Log, TEXT("EOSKit Lobby: Registered for lobby invite rejected notifications"));
+	return LobbyInviteRejectedNotificationId != 0;
+}
+
+void UEOSKitLobbySubsystem::UnregisterLobbyInviteRejectedNotification()
+{
+	UEOSKitSubsystem* EOSKitSubsystem = GetEOSKitSubsystem();
+	if (!EOSKitSubsystem || !EOSKitSubsystem->GetPlatformHandle())
+	{
+		return;
+	}
+
+	EOS_HPlatform PlatformHandle = EOSKitSubsystem->GetPlatformHandle();
+	EOS_HLobby LobbyHandle = EOS_Platform_GetLobbyInterface(PlatformHandle);
+	
+	if (!LobbyHandle)
+	{
+		return;
+	}
+
+	if (LobbyInviteRejectedNotificationId != 0)
+	{
+		EOS_Lobby_RemoveNotifyLobbyInviteRejected(LobbyHandle, LobbyInviteRejectedNotificationId);
+		LobbyInviteRejectedNotificationId = 0;
+	}
+}
+
 void UEOSKitLobbySubsystem::UnregisterAllNotifications()
 {
 	UnregisterJoinLobbyAcceptedNotification();
@@ -416,6 +542,8 @@ void UEOSKitLobbySubsystem::UnregisterAllNotifications()
 	UnregisterLobbyInviteReceivedNotification();
 	UnregisterLobbyMemberStatusReceivedNotification();
 	UnregisterLobbyUpdateReceivedNotification();
+	UnregisterLobbyMemberUpdateReceivedNotification();
+	UnregisterLobbyInviteRejectedNotification();
 	
 	UE_LOG(LogTemp, Log, TEXT("EOSKit Lobby: Unregistered all notifications"));
 }
@@ -612,6 +740,69 @@ void UEOSKitLobbySubsystem::OnLobbyUpdateReceivedCallback(const void* Data)
 		{
 			UE_LOG(LogTemp, Log, TEXT("EOSKit Lobby: Lobby updated - Lobby: %s"), *LobbyId);
 			Subsystem->OnLobbyUpdateReceivedDelegate.ExecuteIfBound(LobbyId);
+		}
+	});
+}
+
+void UEOSKitLobbySubsystem::OnLobbyMemberUpdateReceivedCallback(const void* Data)
+{
+	const EOS_Lobby_LobbyMemberUpdateReceivedCallbackInfo* CallbackInfo = static_cast<const EOS_Lobby_LobbyMemberUpdateReceivedCallbackInfo*>(Data);
+	
+	if (!CallbackInfo || !CallbackInfo->ClientData)
+	{
+		return;
+	}
+
+	UEOSKitLobbySubsystem* Subsystem = static_cast<UEOSKitLobbySubsystem*>(CallbackInfo->ClientData);
+	
+	FString LobbyId = UTF8_TO_TCHAR(CallbackInfo->LobbyId);
+	
+	char UserIdStr[EOS_PRODUCTUSERID_MAX_LENGTH + 1];
+	int32_t BufferSize = sizeof(UserIdStr);
+	EOS_ProductUserId_ToString(CallbackInfo->TargetUserId, UserIdStr, &BufferSize);
+	FString TargetUserId = UTF8_TO_TCHAR(UserIdStr);
+	
+	AsyncTask(ENamedThreads::GameThread, [Subsystem, LobbyId, TargetUserId]()
+	{
+		if (Subsystem)
+		{
+			UE_LOG(LogTemp, Log, TEXT("EOSKit Lobby: Member updated - Lobby: %s, User: %s"), *LobbyId, *TargetUserId);
+			Subsystem->OnLobbyMemberUpdateReceivedDelegate.ExecuteIfBound(LobbyId, TargetUserId);
+		}
+	});
+}
+
+void UEOSKitLobbySubsystem::OnLobbyInviteRejectedCallback(const void* Data)
+{
+	const EOS_Lobby_LobbyInviteRejectedCallbackInfo* CallbackInfo = static_cast<const EOS_Lobby_LobbyInviteRejectedCallbackInfo*>(Data);
+	
+	if (!CallbackInfo || !CallbackInfo->ClientData)
+	{
+		return;
+	}
+
+	UEOSKitLobbySubsystem* Subsystem = static_cast<UEOSKitLobbySubsystem*>(CallbackInfo->ClientData);
+	
+	char LocalUserIdStr[EOS_PRODUCTUSERID_MAX_LENGTH + 1];
+	int32_t BufferSize1 = sizeof(LocalUserIdStr);
+	EOS_ProductUserId_ToString(CallbackInfo->LocalUserId, LocalUserIdStr, &BufferSize1);
+	FString LocalUserId = UTF8_TO_TCHAR(LocalUserIdStr);
+	
+	char TargetUserIdStr[EOS_PRODUCTUSERID_MAX_LENGTH + 1];
+	int32_t BufferSize2 = sizeof(TargetUserIdStr);
+	EOS_ProductUserId_ToString(CallbackInfo->TargetUserId, TargetUserIdStr, &BufferSize2);
+	FString TargetUserId = UTF8_TO_TCHAR(TargetUserIdStr);
+	
+	FString LobbyId = UTF8_TO_TCHAR(CallbackInfo->LobbyId);
+	FString InviteId = CallbackInfo->InviteId ? UTF8_TO_TCHAR(CallbackInfo->InviteId) : TEXT("");
+	
+	AsyncTask(ENamedThreads::GameThread, [Subsystem, LocalUserId, TargetUserId, LobbyId, InviteId]()
+	{
+		if (Subsystem)
+		{
+			UE_LOG(LogTemp, Log, TEXT("EOSKit Lobby: Invite rejected - Local: %s, Target: %s, Lobby: %s, Invite: %s"), 
+				*LocalUserId, *TargetUserId, *LobbyId, *InviteId);
+			Subsystem->OnLobbyInviteRejectedDelegate.ExecuteIfBound(LocalUserId, TargetUserId, LobbyId, InviteId);
 		}
 	});
 }

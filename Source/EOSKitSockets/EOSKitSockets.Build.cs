@@ -12,10 +12,15 @@ public class EOSKitSockets : ModuleRules
 			new string[]
 			{
 				"Core",
+				"CoreUObject",
+				"Engine",
 				"Sockets",
 				"Networking",
 				"NetCore",
 				"EOSSDK",
+				"EOSShared",
+				"EOSKit",
+				"EOSKitShared",
 				"OnlineSubsystemUtils" // Needed for UIpNetDriver
 			}
 		);
@@ -24,12 +29,9 @@ public class EOSKitSockets : ModuleRules
 		PrivateDependencyModuleNames.AddRange(
 			new string[]
 			{
-				"CoreUObject",
-				"Engine",
 				"Slate",
 				"SlateCore",
-				"Projects",
-				"EOSKit" // Dependency for Subsystem/Settings
+				"Projects"
 			}
 		);
 	}

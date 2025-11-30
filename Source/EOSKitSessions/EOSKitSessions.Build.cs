@@ -15,6 +15,7 @@ public class EOSKitSessions : ModuleRules
 			"OnlineSubsystemUtils",
 			"EOSSDK",
 			"EOSShared",
+			"EOSKitShared",
 			"EOSKit",
 			"EOSKitAuth"
 		});
@@ -22,7 +23,10 @@ public class EOSKitSessions : ModuleRules
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
 			"Sockets",
-			"NetCore"
+			"NetCore",
+			"HTTP",
+			"Json",
+			"JsonUtilities"
 		});
 	}
 }

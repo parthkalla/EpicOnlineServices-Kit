@@ -403,29 +403,67 @@ void UEOSKitSettings::UpdateOnlineSubsystemConfig()
 		UE_LOG(LogTemp, Log, TEXT("EOSKit: Set [OnlineSubsystemEOS] bEnabled=false to prevent packaging conflicts"));
 	}
 	
-	// Check if [OnlineSubsystemEOSKit] section exists and add it if not
+	// Check if [OnlineSubsystemEOSKit] section exists and is enabled
 	if (!EngineIniText.Contains(TEXT("[OnlineSubsystemEOSKit]")))
 	{
 		EngineIniText += TEXT("\n[OnlineSubsystemEOSKit]\nbEnabled=true\n");
 		bConfigChanged = true;
-		UE_LOG(LogTemp, Log, TEXT("EOSKit: Added [OnlineSubsystemEOSKit] section"));
+		UE_LOG(LogTemp, Log, TEXT("EOSKit: Added [OnlineSubsystemEOSKit] section with bEnabled=true"));
+	}
+	else if (EngineIniText.Contains(TEXT("[OnlineSubsystemEOSKit]")))
+	{
+		// Section exists, but check if bEnabled is false and fix it
+		if (EngineIniText.Contains(TEXT("[OnlineSubsystemEOSKit]")) && 
+		    EngineIniText.Contains(TEXT("[OnlineSubsystemEOSKit]\nbEnabled=false")))
+		{
+			EngineIniText.ReplaceInline(TEXT("[OnlineSubsystemEOSKit]\nbEnabled=false"), TEXT("[OnlineSubsystemEOSKit]\nbEnabled=true"));
+			bConfigChanged = true;
+			UE_LOG(LogTemp, Warning, TEXT("EOSKit: Fixed [OnlineSubsystemEOSKit] bEnabled from false to true"));
+		}
+		else if (!EngineIniText.Contains(TEXT("[OnlineSubsystemEOSKit]\nbEnabled=")))
+		{
+			// Section exists but bEnabled is missing, add it
+			int32 SectionPos = EngineIniText.Find(TEXT("[OnlineSubsystemEOSKit]"));
+			if (SectionPos != INDEX_NONE)
+			{
+				int32 NextSectionPos = EngineIniText.Find(TEXT("\n["), SectionPos + 1);
+				if (NextSectionPos == INDEX_NONE)
+				{
+					NextSectionPos = EngineIniText.Len();
+				}
+				EngineIniText.InsertAt(SectionPos + FString(TEXT("[OnlineSubsystemEOSKit]")).Len(), TEXT("\nbEnabled=true"));
+				bConfigChanged = true;
+				UE_LOG(LogTemp, Warning, TEXT("EOSKit: Added missing bEnabled=true to [OnlineSubsystemEOSKit] section"));
+			}
+		}
 	}
 	
 	// Update [OnlineSubsystem] section - Set to EOSKit
-	if (!EngineIniText.Contains(TEXT("DefaultPlatformService=EOSKit")))
+	// Check for DefaultPlatformService=EOSKit (with or without whitespace)
+	bool bHasEOSKitService = EngineIniText.Contains(TEXT("DefaultPlatformService=EOSKit")) || 
+	                          EngineIniText.Contains(TEXT("DefaultPlatformService= EOSKit")) ||
+	                          EngineIniText.Contains(TEXT("DefaultPlatformService = EOSKit"));
+	
+	if (!bHasEOSKitService)
 	{
-		// Remove any existing DefaultPlatformService setting
+		// Remove any existing DefaultPlatformService setting (EOS, NULL, etc.)
 		if (EngineIniText.Contains(TEXT("DefaultPlatformService=EOS")))
 		{
 			EngineIniText.ReplaceInline(TEXT("DefaultPlatformService=EOS"), TEXT("DefaultPlatformService=EOSKit"));
 			bConfigChanged = true;
-			UE_LOG(LogTemp, Log, TEXT("EOSKit: Changed DefaultPlatformService to EOSKit"));
+			UE_LOG(LogTemp, Warning, TEXT("EOSKit: Changed DefaultPlatformService from EOS to EOSKit"));
+		}
+		else if (EngineIniText.Contains(TEXT("DefaultPlatformService=NULL")))
+		{
+			EngineIniText.ReplaceInline(TEXT("DefaultPlatformService=NULL"), TEXT("DefaultPlatformService=EOSKit"));
+			bConfigChanged = true;
+			UE_LOG(LogTemp, Warning, TEXT("EOSKit: Changed DefaultPlatformService from NULL to EOSKit"));
 		}
 		else if (!EngineIniText.Contains(TEXT("[OnlineSubsystem]")))
 		{
 			EngineIniText += TEXT("\n[OnlineSubsystem]\nDefaultPlatformService=EOSKit\n");
 			bConfigChanged = true;
-			UE_LOG(LogTemp, Log, TEXT("EOSKit: Set DefaultPlatformService=EOSKit"));
+			UE_LOG(LogTemp, Warning, TEXT("EOSKit: Added [OnlineSubsystem] section with DefaultPlatformService=EOSKit"));
 		}
 		else
 		{
@@ -442,9 +480,13 @@ void UEOSKitSettings::UpdateOnlineSubsystemConfig()
 				FString InsertText = TEXT("DefaultPlatformService=EOSKit\n");
 				EngineIniText.InsertAt(NextSectionPos, InsertText);
 				bConfigChanged = true;
-				UE_LOG(LogTemp, Log, TEXT("EOSKit: Set DefaultPlatformService=EOSKit"));
+				UE_LOG(LogTemp, Warning, TEXT("EOSKit: Added DefaultPlatformService=EOSKit to [OnlineSubsystem] section"));
 			}
 		}
+	}
+	else
+	{
+		UE_LOG(LogTemp, Log, TEXT("EOSKit: DefaultPlatformService=EOSKit already configured correctly"));
 	}
 	
 	// Update [/Script/OnlineSubsystemEOSKit.NetDriverEOSKit] section
