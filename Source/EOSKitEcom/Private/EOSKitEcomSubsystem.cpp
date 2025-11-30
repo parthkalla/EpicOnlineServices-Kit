@@ -3,8 +3,15 @@
 #include "EOSKitEcomSubsystem.h"
 #include "EOSKitSubsystem.h"
 #include "Kismet/GameplayStatics.h"
+#if WITH_EOS_SDK
+#include "Windows/AllowWindowsPlatformTypes.h"
+#include "Windows/PreWindowsApi.h"
+#include "eos_platform.h"
 #include "eos_ecom.h"
 #include "eos_ecom_types.h"
+#include "Windows/PostWindowsApi.h"
+#include "Windows/HideWindowsPlatformTypes.h"
+#endif
 #include "EOSKitSharedTypes.h"
 
 void UEOSKitEcomSubsystem::Initialize(FSubsystemCollectionBase& Collection)

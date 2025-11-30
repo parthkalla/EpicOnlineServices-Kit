@@ -3,7 +3,14 @@
 #include "EOS_Sessions_EndSession.h"
 #include "EOSKitSubsystem.h"
 #include "Kismet/GameplayStatics.h"
+#if WITH_EOS_SDK
+#include "Windows/AllowWindowsPlatformTypes.h"
+#include "Windows/PreWindowsApi.h"
+#include "eos_platform.h"
 #include "eos_sessions.h"
+#include "Windows/PostWindowsApi.h"
+#include "Windows/HideWindowsPlatformTypes.h"
+#endif
 #include "Async/Async.h"
 
 UEOS_Sessions_EndSession* UEOS_Sessions_EndSession::EOS_Sessions_EndSession(const FString& SessionName)

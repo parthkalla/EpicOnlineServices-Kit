@@ -8,7 +8,7 @@
 #include "EOSKitSubsystem.h"
 #include "EOS_SessionSearch_Find.generated.h"
 
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FEOSKit_OnSessionSearch_FindCallback, const TEnumAsByte<EEOSKitResult>&, ResultCode);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FEOSKit_OnSessionSearch_FindCallback, EEOSKitResult, ResultCode);
 
 UCLASS()
 class EOSKITSESSIONS_API UEOS_SessionSearch_Find : public UBlueprintAsyncActionBase

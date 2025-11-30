@@ -8,7 +8,7 @@
 #include "EOSKitSubsystem.h"
 #include "EOS_Sessions_StartSession.generated.h"
 
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FEOSKit_OnStartSessionCallback, const TEnumAsByte<EEOSKitResult>&, ResultCode);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FEOSKit_OnStartSessionCallback, EEOSKitResult, ResultCode);
 
 UCLASS()
 class EOSKITSESSIONS_API UEOS_Sessions_StartSession : public UBlueprintAsyncActionBase

@@ -8,7 +8,7 @@
 #include "EOSKitSubsystem.h"
 #include "EOS_Sessions_RegisterPlayers.generated.h"
 
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FEOSKit_OnRegisterPlayersCallback, const TEnumAsByte<EEOSKitResult>&, ResultCode, const TArray<FEOSKitProductUserId>&, RegisteredPlayers, const TArray<FEOSKitProductUserId>&, SanctionedPlayers);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FEOSKit_OnRegisterPlayersCallback, EEOSKitResult, ResultCode, const TArray<FEOSKitProductUserId>&, RegisteredPlayers, const TArray<FEOSKitProductUserId>&, SanctionedPlayers);
 
 UCLASS()
 class EOSKITSESSIONS_API UEOS_Sessions_RegisterPlayers : public UBlueprintAsyncActionBase

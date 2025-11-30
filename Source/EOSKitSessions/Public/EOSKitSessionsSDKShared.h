@@ -4,10 +4,14 @@
 
 #include "CoreMinimal.h"
 #include "EOSKitSharedTypes.h"
-THIRD_PARTY_INCLUDES_START
+#if WITH_EOS_SDK
+#include "Windows/AllowWindowsPlatformTypes.h"
+#include "Windows/PreWindowsApi.h"
 #include "eos_sessions.h"
 #include "eos_sessions_types.h"
-THIRD_PARTY_INCLUDES_END
+#include "Windows/PostWindowsApi.h"
+#include "Windows/HideWindowsPlatformTypes.h"
+#endif
 #include "EOSKitSessionsSDKShared.generated.h"
 
 // ========================================

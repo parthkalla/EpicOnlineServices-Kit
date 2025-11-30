@@ -32,7 +32,7 @@ public:
 	UFUNCTION(BlueprintCallable, DisplayName="Query External Account Mappings", meta = (BlueprintInternalUseOnly = "true"), Category="EOSKit|Sessions")
 	static UEOSQueryExternalAccountMappingsAsync* QueryExternalAccountMappings(
 		FString ProductUserId,
-		TEnumAsByte<EEOSKitExternalAccountType> AccountType,
+		EEOSKitExternalAccountType AccountType,
 		const TArray<FString>& ExternalAccountIds
 	);
 
@@ -42,6 +42,6 @@ private:
 	void QueryMappings();
 	
 	FString VarProductUserId;
-	TEnumAsByte<EEOSKitExternalAccountType> VarAccountType;
+	EEOSKitExternalAccountType VarAccountType;
 	TArray<FString> VarExternalAccountIds;
 };

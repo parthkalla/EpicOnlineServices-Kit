@@ -3,8 +3,15 @@
 #include "Functions/Sanctions/EOSQuerySanctionsAsync.h"
 #include "EOSKitSubsystem.h"
 #include "Kismet/GameplayStatics.h"
+#if WITH_EOS_SDK
+#include "Windows/AllowWindowsPlatformTypes.h"
+#include "Windows/PreWindowsApi.h"
+#include "eos_platform.h"
 #include "eos_sanctions.h"
 #include "eos_sanctions_types.h"
+#include "Windows/PostWindowsApi.h"
+#include "Windows/HideWindowsPlatformTypes.h"
+#endif
 #include "Async/Async.h"
 
 UEOSQuerySanctionsAsync* UEOSQuerySanctionsAsync::QuerySanctions(

@@ -79,7 +79,7 @@ public:
 	virtual FString InsecureGetLoginToken(const FString& PlayerName) override;
 	virtual FString InsecureGetJoinToken(const FString& ChannelName, EVoiceChatChannelType ChannelType, TOptional<FVoiceChatChannel3dProperties> Channel3dProperties = TOptional<FVoiceChatChannel3dProperties>()) override;
 
-	enum class ELoginState { LoggedOut, LoggingIn, LoggedIn, LoggingOut };
+	enum class ELoginState : uint8 { LoggedOut, LoggingIn, LoggedIn, LoggingOut };
 	struct FLoginSession {
 		ELoginState State = ELoginState::LoggedOut;
 		FString PlayerName;

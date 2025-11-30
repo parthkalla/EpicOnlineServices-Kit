@@ -16,7 +16,14 @@
 
 #include "EOSFindLobbiesAsync.h"
 #include "EOSKitSubsystem.h"
+#if WITH_EOS_SDK
+#include "Windows/AllowWindowsPlatformTypes.h"
+#include "Windows/PreWindowsApi.h"
+#include "eos_platform.h"
 #include "eos_lobby.h"
+#include "Windows/PostWindowsApi.h"
+#include "Windows/HideWindowsPlatformTypes.h"
+#endif
 #include "eos_sdk.h"
 
 UEOSFindLobbiesAsync* UEOSFindLobbiesAsync::FindLobbies(UObject* WorldContextObject)

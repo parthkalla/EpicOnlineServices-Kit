@@ -3,7 +3,14 @@
 #include "EOS_Sessions_UnregisterPlayers.h"
 #include "EOSKitSubsystem.h"
 #include "Kismet/GameplayStatics.h"
+#if WITH_EOS_SDK
+#include "Windows/AllowWindowsPlatformTypes.h"
+#include "Windows/PreWindowsApi.h"
+#include "eos_platform.h"
 #include "eos_sessions.h"
+#include "Windows/PostWindowsApi.h"
+#include "Windows/HideWindowsPlatformTypes.h"
+#endif
 #include "Async/Async.h"
 
 UEOS_Sessions_UnregisterPlayers* UEOS_Sessions_UnregisterPlayers::EOS_Sessions_UnregisterPlayers(const FString& SessionName, const TArray<FEOSKitProductUserId>& PlayersToUnregister)

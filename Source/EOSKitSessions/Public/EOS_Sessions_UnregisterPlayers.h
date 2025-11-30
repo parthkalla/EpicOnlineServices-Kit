@@ -8,7 +8,7 @@
 #include "EOSKitSubsystem.h"
 #include "EOS_Sessions_UnregisterPlayers.generated.h"
 
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FEOSKit_OnUnregisterPlayersCallback, const TEnumAsByte<EEOSKitResult>&, ResultCode, const TArray<FEOSKitProductUserId>&, UnregisteredPlayers);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FEOSKit_OnUnregisterPlayersCallback, EEOSKitResult, ResultCode, const TArray<FEOSKitProductUserId>&, UnregisteredPlayers);
 
 UCLASS()
 class EOSKITSESSIONS_API UEOS_Sessions_UnregisterPlayers : public UBlueprintAsyncActionBase

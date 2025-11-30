@@ -25,7 +25,7 @@ struct FEOSKitVerifyIdTokenCallbackInfo
 	bool bIsAccountInfoPresent;
 
 	UPROPERTY(BlueprintReadWrite, Category = "EOSKit|Connect")
-	TEnumAsByte<EEOSKitExternalAccountType> AccountType;
+	EEOSKitExternalAccountType AccountType;
 
 	UPROPERTY(BlueprintReadWrite, Category = "EOSKit|Connect")
 	FString AccountId;
@@ -52,7 +52,7 @@ struct FEOSKitVerifyIdTokenCallbackInfo
 		: bSuccess(false)
 		, ProductUserId(TEXT(""))
 		, bIsAccountInfoPresent(false)
-		, AccountType(EKAT_Epic)
+		, AccountType(EEOSKitExternalAccountType::EKAT_Epic)
 		, AccountId(TEXT(""))
 		, Platform(TEXT(""))
 		, DeviceType(TEXT(""))

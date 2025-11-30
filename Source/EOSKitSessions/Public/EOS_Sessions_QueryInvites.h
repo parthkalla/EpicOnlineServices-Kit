@@ -8,7 +8,7 @@
 #include "EOSKitSubsystem.h"
 #include "EOS_Sessions_QueryInvites.generated.h"
 
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FEOSKit_OnQueryInvitesCallback, const TEnumAsByte<EEOSKitResult>&, ResultCode, const FEOSKitProductUserId&, LocalUserId);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FEOSKit_OnQueryInvitesCallback, EEOSKitResult, ResultCode, const FEOSKitProductUserId&, LocalUserId);
 
 UCLASS()
 class EOSKITSESSIONS_API UEOS_Sessions_QueryInvites : public UBlueprintAsyncActionBase

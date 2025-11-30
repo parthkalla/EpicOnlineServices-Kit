@@ -8,7 +8,7 @@
 #include "EOSKitSubsystem.h"
 #include "EOS_Sessions_DestroySession.generated.h"
 
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FEOSKit_OnDestroySessionCallback, const TEnumAsByte<EEOSKitResult>&, ResultCode);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FEOSKit_OnDestroySessionCallback, EEOSKitResult, ResultCode);
 
 UCLASS()
 class EOSKITSESSIONS_API UEOS_Sessions_DestroySession : public UBlueprintAsyncActionBase

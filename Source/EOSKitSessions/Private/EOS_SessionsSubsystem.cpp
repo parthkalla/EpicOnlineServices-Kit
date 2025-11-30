@@ -3,8 +3,15 @@
 #include "EOS_SessionsSubsystem.h"
 #include "EOSKitSubsystem.h"
 #include "Kismet/GameplayStatics.h"
+#if WITH_EOS_SDK
+#include "Windows/AllowWindowsPlatformTypes.h"
+#include "Windows/PreWindowsApi.h"
+#include "eos_platform.h"
 #include "eos_sessions.h"
 #include "eos_sessions_types.h"
+#include "Windows/PostWindowsApi.h"
+#include "Windows/HideWindowsPlatformTypes.h"
+#endif
 
 // Helper function to get Sessions Handle
 EOS_HSessions UEOS_SessionsSubsystem::GetSessionsHandle()

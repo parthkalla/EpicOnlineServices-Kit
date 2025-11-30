@@ -8,12 +8,16 @@
 #include "EOSKitSharedTypes.h"
 #include "EOSKitSubsystem.h"
 
-THIRD_PARTY_INCLUDES_START
+#if WITH_EOS_SDK
+#include "Windows/AllowWindowsPlatformTypes.h"
+#include "Windows/PreWindowsApi.h"
 #include "eos_rtc.h"
 #include "eos_rtc_types.h"
 #include "eos_rtc_audio.h"
 #include "eos_rtc_audio_types.h"
-THIRD_PARTY_INCLUDES_END
+#include "Windows/PostWindowsApi.h"
+#include "Windows/HideWindowsPlatformTypes.h"
+#endif
 
 // .generated.h must always be the last include
 #include "EOSKitRTCSubsystem.generated.h"

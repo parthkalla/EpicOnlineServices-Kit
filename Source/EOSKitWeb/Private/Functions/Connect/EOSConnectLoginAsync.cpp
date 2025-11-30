@@ -3,7 +3,14 @@
 #include "Functions/Connect/EOSConnectLoginAsync.h"
 #include "EOSKitSubsystem.h"
 #include "Kismet/GameplayStatics.h"
+#if WITH_EOS_SDK
+#include "Windows/AllowWindowsPlatformTypes.h"
+#include "Windows/PreWindowsApi.h"
+#include "eos_platform.h"
 #include "eos_connect.h"
+#include "Windows/PostWindowsApi.h"
+#include "Windows/HideWindowsPlatformTypes.h"
+#endif
 #include "Async/Async.h"
 
 UEOSConnectLoginAsync* UEOSConnectLoginAsync::ConnectLogin(

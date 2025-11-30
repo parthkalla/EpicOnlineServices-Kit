@@ -8,10 +8,14 @@
 #include "EOSKitSharedTypes.h"
 #include "EOSKitSubsystem.h"
 
-THIRD_PARTY_INCLUDES_START
+#if WITH_EOS_SDK
+#include "Windows/AllowWindowsPlatformTypes.h"
+#include "Windows/PreWindowsApi.h"
 #include "eos_presence.h"
 #include "eos_presence_types.h"
-THIRD_PARTY_INCLUDES_END
+#include "Windows/PostWindowsApi.h"
+#include "Windows/HideWindowsPlatformTypes.h"
+#endif
 
 // .generated.h must always be the last include
 #include "EOSKitPresenceSubsystem.generated.h"

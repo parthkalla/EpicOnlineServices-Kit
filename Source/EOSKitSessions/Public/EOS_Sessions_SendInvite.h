@@ -8,7 +8,7 @@
 #include "EOSKitSubsystem.h"
 #include "EOS_Sessions_SendInvite.generated.h"
 
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FEOSKit_OnSendInviteCallback, const TEnumAsByte<EEOSKitResult>&, ResultCode);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FEOSKit_OnSendInviteCallback, EEOSKitResult, ResultCode);
 
 UCLASS()
 class EOSKITSESSIONS_API UEOS_Sessions_SendInvite : public UBlueprintAsyncActionBase

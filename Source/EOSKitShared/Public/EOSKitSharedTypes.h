@@ -10,11 +10,22 @@
 // EOS SDK includes - wrapped to prevent conflicts
 // Must come before .generated.h
 #if WITH_EOS_SDK
+#include "Windows/AllowWindowsPlatformTypes.h"
+#include "Windows/PreWindowsApi.h"
+
 #if defined(EOS_PLATFORM_BASE_FILE_NAME)
 #include EOS_PLATFORM_BASE_FILE_NAME
 #endif
 #include "eos_common.h"
 #include "eos_types.h"
+#include "eos_lobby_types.h"
+#include "eos_connect_types.h"
+#include "eos_auth_types.h"
+#include "eos_userinfo_types.h"
+#include "eos_ui_types.h"
+
+#include "Windows/PostWindowsApi.h"
+#include "Windows/HideWindowsPlatformTypes.h"
 #endif
 
 // If the EOS SDK isn't available, provide minimal fallback typedefs so this header still parses

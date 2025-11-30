@@ -24,7 +24,10 @@ public class EOSKitShared : ModuleRules
 			}
 		);
 
-		// Ensure WITH_EOS_SDK is defined for builds that don't set it externally
-		PublicDefinitions.Add("WITH_EOS_SDK=0");
+		// Add EOSSDK dependency if available
+		PublicDependencyModuleNames.Add("EOSSDK");
+		
+		// WITH_EOS_SDK should be set by the EOSSDK module or build system
+		// Don't force it to 0 - let the build system determine if EOS SDK is available
 	}
 }

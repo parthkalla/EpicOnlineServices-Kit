@@ -8,7 +8,7 @@
 #include "EOSKitSubsystem.h"
 #include "EOS_Sessions_UpdateSession.generated.h"
 
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FEOSKit_OnUpdateSessionCallback, const TEnumAsByte<EEOSKitResult>&, ResultCode, const FString&, SessionName, const FString&, SessionId);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FEOSKit_OnUpdateSessionCallback, EEOSKitResult, ResultCode, const FString&, SessionName, const FString&, SessionId);
 
 UCLASS()
 class EOSKITSESSIONS_API UEOS_Sessions_UpdateSession : public UBlueprintAsyncActionBase

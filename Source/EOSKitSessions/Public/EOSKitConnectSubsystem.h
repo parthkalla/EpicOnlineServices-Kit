@@ -49,7 +49,7 @@ struct FEOSKitExternalAccountInfo
 	FString AccountId;
 
 	UPROPERTY(BlueprintReadOnly, Category = "EOSKit|Connect")
-	TEnumAsByte<EEOSKitExternalAccountType> AccountIdType;
+	EEOSKitExternalAccountType AccountIdType;
 
 	UPROPERTY(BlueprintReadOnly, Category = "EOSKit|Connect")
 	FString LastLoginTime;
@@ -58,7 +58,7 @@ struct FEOSKitExternalAccountInfo
 		: ProductUserId(TEXT(""))
 		, DisplayName(TEXT(""))
 		, AccountId(TEXT(""))
-		, AccountIdType(EKAT_Epic)
+		, AccountIdType(EEOSKitExternalAccountType::EKAT_Epic)
 		, LastLoginTime(TEXT(""))
 	{
 	}
@@ -140,7 +140,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "EOSKit|Connect|Subsystem")
 	bool CopyProductUserExternalAccountByAccountType(
 		const FString& ProductUserId,
-		TEnumAsByte<EEOSKitExternalAccountType> AccountType,
+		EEOSKitExternalAccountType AccountType,
 		FEOSKitExternalAccountInfo& OutAccountInfo
 	);
 
@@ -173,7 +173,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "EOSKit|Connect|Subsystem")
 	FString GetExternalAccountMapping(
 		const FString& LocalUserId,
-		TEnumAsByte<EEOSKitExternalAccountType> AccountType,
+		EEOSKitExternalAccountType AccountType,
 		const FString& TargetExternalUserId
 	);
 
@@ -183,7 +183,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "EOSKit|Connect|Subsystem")
 	bool GetProductUserIdMapping(
 		const FString& LocalUserId,
-		TEnumAsByte<EEOSKitExternalAccountType> AccountType,
+		EEOSKitExternalAccountType AccountType,
 		const FString& TargetUserId,
 		FString& OutExternalAccountId
 	);
@@ -208,7 +208,7 @@ public:
 	 * Get login status for a user
 	 */
 	UFUNCTION(BlueprintCallable, Category = "EOSKit|Connect|Subsystem")
-	TEnumAsByte<EEOSKitLoginStatus> GetLoginStatus(const FString& ProductUserId) const;
+	EEOSKitLoginStatus GetLoginStatus(const FString& ProductUserId) const;
 
 	/**
 	 * Get count of external accounts linked to Product User ID

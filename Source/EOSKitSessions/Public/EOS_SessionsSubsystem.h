@@ -7,10 +7,14 @@
 #include "EOSKitSessionsSDKShared.h"
 #include "EOSKitSubsystem.h"
 
-THIRD_PARTY_INCLUDES_START
+#if WITH_EOS_SDK
+#include "Windows/AllowWindowsPlatformTypes.h"
+#include "Windows/PreWindowsApi.h"
 #include "eos_sessions.h"
 #include "eos_sessions_types.h"
-THIRD_PARTY_INCLUDES_END
+#include "Windows/PostWindowsApi.h"
+#include "Windows/HideWindowsPlatformTypes.h"
+#endif
 
 // .generated.h must always be the last include
 #include "EOS_SessionsSubsystem.generated.h"
@@ -334,7 +338,7 @@ public:
 	// ========================================
 
 	UFUNCTION(BlueprintCallable, Category = "EOSKit | SDK Functions | Sessions Interface", DisplayName = "EOS_ActiveSession_CopyInfo")
-	static TEnumAsByte<EEOSKitResult> EOS_ActiveSession_CopyInfo(const FEOSKitHActiveSession& Handle, FEOSKit_ActiveSession_Info& OutActiveSessionInfo);
+	static EEOSKitResult EOS_ActiveSession_CopyInfo(const FEOSKitHActiveSession& Handle, FEOSKit_ActiveSession_Info& OutActiveSessionInfo);
 
 	UFUNCTION(BlueprintCallable, Category = "EOSKit | SDK Functions | Sessions Interface", DisplayName = "EOS_ActiveSession_GetRegisteredPlayerByIndex")
 	static FEOSKitProductUserId EOS_ActiveSession_GetRegisteredPlayerByIndex(const FEOSKitHActiveSession& Handle, int32 PlayerIndex);
@@ -347,13 +351,13 @@ public:
 	// ========================================
 
 	UFUNCTION(BlueprintCallable, Category = "EOSKit | SDK Functions | Sessions Interface", DisplayName = "EOS_SessionDetails_CopyInfo")
-	static TEnumAsByte<EEOSKitResult> EOS_SessionDetails_CopyInfo(const FEOSKitHSessionDetails& Handle, FEOSKit_SessionDetails_Info& OutSessionInfo);
+	static EEOSKitResult EOS_SessionDetails_CopyInfo(const FEOSKitHSessionDetails& Handle, FEOSKit_SessionDetails_Info& OutSessionInfo);
 
 	UFUNCTION(BlueprintCallable, Category = "EOSKit | SDK Functions | Sessions Interface", DisplayName = "EOS_SessionDetails_CopySessionAttributeByIndex")
-	static TEnumAsByte<EEOSKitResult> EOS_SessionDetails_CopySessionAttributeByIndex(const FEOSKitHSessionDetails& Handle, int32 AttrIndex, FEOSKit_SessionDetails_Attribute& OutSessionAttribute);
+	static EEOSKitResult EOS_SessionDetails_CopySessionAttributeByIndex(const FEOSKitHSessionDetails& Handle, int32 AttrIndex, FEOSKit_SessionDetails_Attribute& OutSessionAttribute);
 
 	UFUNCTION(BlueprintCallable, Category = "EOSKit | SDK Functions | Sessions Interface", DisplayName = "EOS_SessionDetails_CopySessionAttributeByKey")
-	static TEnumAsByte<EEOSKitResult> EOS_SessionDetails_CopySessionAttributeByKey(const FEOSKitHSessionDetails& Handle, const FString& AttrKey, FEOSKit_SessionDetails_Attribute& OutSessionAttribute);
+	static EEOSKitResult EOS_SessionDetails_CopySessionAttributeByKey(const FEOSKitHSessionDetails& Handle, const FString& AttrKey, FEOSKit_SessionDetails_Attribute& OutSessionAttribute);
 
 	UFUNCTION(BlueprintCallable, Category = "EOSKit | SDK Functions | Sessions Interface", DisplayName = "EOS_SessionDetails_GetSessionAttributeCount")
 	static int32 EOS_SessionDetails_GetSessionAttributeCount(const FEOSKitHSessionDetails& Handle);
@@ -363,34 +367,34 @@ public:
 	// ========================================
 
 	UFUNCTION(BlueprintCallable, Category = "EOSKit | SDK Functions | Sessions Interface", DisplayName = "EOS_SessionModification_AddAttribute")
-	static TEnumAsByte<EEOSKitResult> EOS_SessionModification_AddAttribute(const FEOSKitHSessionModification& Handle, const FEOSKit_Sessions_AttributeData& AttrData, TEnumAsByte<EEOSKit_SessionAttributeAdvertisementType> AdvertisementType);
+	static EEOSKitResult EOS_SessionModification_AddAttribute(const FEOSKitHSessionModification& Handle, const FEOSKit_Sessions_AttributeData& AttrData, EEOSKit_SessionAttributeAdvertisementType AdvertisementType);
 
 	UFUNCTION(BlueprintCallable, Category = "EOSKit | SDK Functions | Sessions Interface", DisplayName = "EOS_SessionModification_Release")
 	static void EOS_SessionModification_Release(const FEOSKitHSessionModification& Handle);
 
 	UFUNCTION(BlueprintCallable, Category = "EOSKit | SDK Functions | Sessions Interface", DisplayName = "EOS_SessionModification_RemoveAttribute")
-	static TEnumAsByte<EEOSKitResult> EOS_SessionModification_RemoveAttribute(const FEOSKitHSessionModification& Handle, const FString& Key);
+	static EEOSKitResult EOS_SessionModification_RemoveAttribute(const FEOSKitHSessionModification& Handle, const FString& Key);
 
 	UFUNCTION(BlueprintCallable, Category = "EOSKit | SDK Functions | Sessions Interface", DisplayName = "EOS_SessionModification_SetAllowedPlatformIds")
-	static TEnumAsByte<EEOSKitResult> EOS_SessionModification_SetAllowedPlatformIds(const FEOSKitHSessionModification& Handle, const TArray<int32>& PlatformIds);
+	static EEOSKitResult EOS_SessionModification_SetAllowedPlatformIds(const FEOSKitHSessionModification& Handle, const TArray<int32>& PlatformIds);
 
 	UFUNCTION(BlueprintCallable, Category = "EOSKit | SDK Functions | Sessions Interface", DisplayName = "EOS_SessionModification_SetBucketId")
-	static TEnumAsByte<EEOSKitResult> EOS_SessionModification_SetBucketId(const FEOSKitHSessionModification& Handle, const FString& BucketId);
+	static EEOSKitResult EOS_SessionModification_SetBucketId(const FEOSKitHSessionModification& Handle, const FString& BucketId);
 
 	UFUNCTION(BlueprintCallable, Category = "EOSKit | SDK Functions | Sessions Interface", DisplayName = "EOS_SessionModification_SetHostAddress")
-	static TEnumAsByte<EEOSKitResult> EOS_SessionModification_SetHostAddress(const FEOSKitHSessionModification& Handle, const FString& HostAddress);
+	static EEOSKitResult EOS_SessionModification_SetHostAddress(const FEOSKitHSessionModification& Handle, const FString& HostAddress);
 
 	UFUNCTION(BlueprintCallable, Category = "EOSKit | SDK Functions | Sessions Interface", DisplayName = "EOS_SessionModification_SetInvitesAllowed")
-	static TEnumAsByte<EEOSKitResult> EOS_SessionModification_SetInvitesAllowed(const FEOSKitHSessionModification& Handle, bool bInvitesAllowed);
+	static EEOSKitResult EOS_SessionModification_SetInvitesAllowed(const FEOSKitHSessionModification& Handle, bool bInvitesAllowed);
 
 	UFUNCTION(BlueprintCallable, Category = "EOSKit | SDK Functions | Sessions Interface", DisplayName = "EOS_SessionModification_SetJoinInProgressAllowed")
-	static TEnumAsByte<EEOSKitResult> EOS_SessionModification_SetJoinInProgressAllowed(const FEOSKitHSessionModification& Handle, bool bAllowJoinInProgress);
+	static EEOSKitResult EOS_SessionModification_SetJoinInProgressAllowed(const FEOSKitHSessionModification& Handle, bool bAllowJoinInProgress);
 
 	UFUNCTION(BlueprintCallable, Category = "EOSKit | SDK Functions | Sessions Interface", DisplayName = "EOS_SessionModification_SetMaxPlayers")
-	static TEnumAsByte<EEOSKitResult> EOS_SessionModification_SetMaxPlayers(const FEOSKitHSessionModification& Handle, int32 MaxPlayers);
+	static EEOSKitResult EOS_SessionModification_SetMaxPlayers(const FEOSKitHSessionModification& Handle, int32 MaxPlayers);
 
 	UFUNCTION(BlueprintCallable, Category = "EOSKit | SDK Functions | Sessions Interface", DisplayName = "EOS_SessionModification_SetPermissionLevel")
-	static TEnumAsByte<EEOSKitResult> EOS_SessionModification_SetPermissionLevel(const FEOSKitHSessionModification& Handle, TEnumAsByte<EEOSKit_EOnlineSessionPermissionLevel> PermissionLevel);
+	static EEOSKitResult EOS_SessionModification_SetPermissionLevel(const FEOSKitHSessionModification& Handle, EEOSKit_EOnlineSessionPermissionLevel PermissionLevel);
 
 	// ========================================
 	// Session Notification Functions
@@ -425,22 +429,22 @@ public:
 	// ========================================
 
 	UFUNCTION(BlueprintCallable, Category = "EOSKit | SDK Functions | Sessions Interface", DisplayName = "EOS_Sessions_CopyActiveSessionHandle")
-	static TEnumAsByte<EEOSKitResult> EOS_Sessions_CopyActiveSessionHandle(const FString& SessionName, FEOSKitHActiveSession& OutActiveSessionHandle);
+	static EEOSKitResult EOS_Sessions_CopyActiveSessionHandle(const FString& SessionName, FEOSKitHActiveSession& OutActiveSessionHandle);
 
 	UFUNCTION(BlueprintCallable, Category = "EOSKit | SDK Functions | Sessions Interface", DisplayName = "EOS_Sessions_CopySessionHandleByInviteId")
-	static TEnumAsByte<EEOSKitResult> EOS_Sessions_CopySessionHandleByInviteId(const FString& InviteId, FEOSKitHSessionDetails& OutSessionHandle);
+	static EEOSKitResult EOS_Sessions_CopySessionHandleByInviteId(const FString& InviteId, FEOSKitHSessionDetails& OutSessionHandle);
 
 	UFUNCTION(BlueprintCallable, Category = "EOSKit | SDK Functions | Sessions Interface", DisplayName = "EOS_Sessions_CopySessionHandleByUiEventId")
-	static TEnumAsByte<EEOSKitResult> EOS_Sessions_CopySessionHandleByUiEventId(int64 UiEventId, FEOSKitHSessionDetails& OutSessionHandle);
+	static EEOSKitResult EOS_Sessions_CopySessionHandleByUiEventId(int64 UiEventId, FEOSKitHSessionDetails& OutSessionHandle);
 
 	UFUNCTION(BlueprintCallable, Category = "EOSKit | SDK Functions | Sessions Interface", DisplayName = "EOS_Sessions_CopySessionHandleForPresence")
-	static TEnumAsByte<EEOSKitResult> EOS_Sessions_CopySessionHandleForPresence(const FEOSKitProductUserId& LocalUserId, FEOSKitHSessionDetails& OutSessionHandle);
+	static EEOSKitResult EOS_Sessions_CopySessionHandleForPresence(const FEOSKitProductUserId& LocalUserId, FEOSKitHSessionDetails& OutSessionHandle);
 
 	UFUNCTION(BlueprintCallable, Category = "EOSKit | SDK Functions | Sessions Interface", DisplayName = "EOS_Sessions_CreateSessionModification")
-	static TEnumAsByte<EEOSKitResult> EOS_Sessions_CreateSessionModification(const FEOSKit_Sessions_CreateSessionModificationOptions& Options, FEOSKitHSessionModification& OutSessionModificationHandle);
+	static EEOSKitResult EOS_Sessions_CreateSessionModification(const FEOSKit_Sessions_CreateSessionModificationOptions& Options, FEOSKitHSessionModification& OutSessionModificationHandle);
 
 	UFUNCTION(BlueprintCallable, Category = "EOSKit | SDK Functions | Sessions Interface", DisplayName = "EOS_Sessions_CreateSessionSearch")
-	static TEnumAsByte<EEOSKitResult> EOS_Sessions_CreateSessionSearch(int32 MaxSearchResults, FEOSKitHSessionSearch& OutSessionSearchHandle);
+	static EEOSKitResult EOS_Sessions_CreateSessionSearch(int32 MaxSearchResults, FEOSKitHSessionSearch& OutSessionSearchHandle);
 
 	UFUNCTION(BlueprintCallable, Category = "EOSKit | SDK Functions | Sessions Interface", DisplayName = "EOS_Sessions_DumpSessionState")
 	static void EOS_Sessions_DumpSessionState(const FString& SessionName);
@@ -452,7 +456,7 @@ public:
 	static FString EOS_Sessions_GetInviteIdByIndex(const FEOSKitProductUserId& LocalUserId, int32 Index);
 
 	UFUNCTION(BlueprintCallable, Category = "EOSKit | SDK Functions | Sessions Interface", DisplayName = "EOS_Sessions_IsUserInSession")
-	static TEnumAsByte<EEOSKitResult> EOS_Sessions_IsUserInSession(const FEOSKitProductUserId& TargetUserId, const FString& SessionName);
+	static EEOSKitResult EOS_Sessions_IsUserInSession(const FEOSKitProductUserId& TargetUserId, const FString& SessionName);
 
 	UFUNCTION(BlueprintCallable, Category = "EOSKit | SDK Functions | Sessions Interface", DisplayName = "EOS_Sessions_RemoveNotifyJoinSessionAccepted")
 	static void EOS_Sessions_RemoveNotifyJoinSessionAccepted(const FEOSKit_NotificationId& InId);
@@ -473,14 +477,14 @@ public:
 	static void EOS_Sessions_RemoveNotifySessionInviteRejected(const FEOSKit_NotificationId& InId);
 
 	UFUNCTION(BlueprintCallable, Category = "EOSKit | SDK Functions | Sessions Interface", DisplayName = "EOS_Sessions_UpdateSessionModification")
-	static TEnumAsByte<EEOSKitResult> EOS_Sessions_UpdateSessionModification(const FString& SessionName, FEOSKitHSessionModification& OutSessionModificationHandle);
+	static EEOSKitResult EOS_Sessions_UpdateSessionModification(const FString& SessionName, FEOSKitHSessionModification& OutSessionModificationHandle);
 
 	// ========================================
 	// Session Search Functions
 	// ========================================
 
 	UFUNCTION(BlueprintCallable, Category = "EOSKit | SDK Functions | Sessions Interface", DisplayName = "EOS_SessionSearch_CopySearchResultByIndex")
-	static TEnumAsByte<EEOSKitResult> EOS_SessionSearch_CopySearchResultByIndex(const FEOSKitHSessionSearch& Handle, int32 SessionIndex, FEOSKitHSessionDetails& OutSessionHandle);
+	static EEOSKitResult EOS_SessionSearch_CopySearchResultByIndex(const FEOSKitHSessionSearch& Handle, int32 SessionIndex, FEOSKitHSessionDetails& OutSessionHandle);
 
 	UFUNCTION(BlueprintCallable, Category = "EOSKit | SDK Functions | Sessions Interface", DisplayName = "EOS_SessionSearch_GetSearchResultCount")
 	static int32 EOS_SessionSearch_GetSearchResultCount(const FEOSKitHSessionSearch& Handle);
@@ -489,19 +493,19 @@ public:
 	static void EOS_SessionSearch_Release(const FEOSKitHSessionSearch& Handle);
 
 	UFUNCTION(BlueprintCallable, Category = "EOSKit | SDK Functions | Sessions Interface", DisplayName = "EOS_SessionSearch_RemoveParameter")
-	static TEnumAsByte<EEOSKitResult> EOS_SessionSearch_RemoveParameter(const FEOSKitHSessionSearch& Handle, const FString& Key, TEnumAsByte<EEOSKit_EComparisonOp> ComparisonOp);
+	static EEOSKitResult EOS_SessionSearch_RemoveParameter(const FEOSKitHSessionSearch& Handle, const FString& Key, EEOSKit_EComparisonOp ComparisonOp);
 
 	UFUNCTION(BlueprintCallable, Category = "EOSKit | SDK Functions | Sessions Interface", DisplayName = "EOS_SessionSearch_SetMaxResults")
-	static TEnumAsByte<EEOSKitResult> EOS_SessionSearch_SetMaxResults(const FEOSKitHSessionSearch& Handle, int32 MaxSearchResults);
+	static EEOSKitResult EOS_SessionSearch_SetMaxResults(const FEOSKitHSessionSearch& Handle, int32 MaxSearchResults);
 
 	UFUNCTION(BlueprintCallable, Category = "EOSKit | SDK Functions | Sessions Interface", DisplayName = "EOS_SessionSearch_SetParameter")
-	static TEnumAsByte<EEOSKitResult> EOS_SessionSearch_SetParameter(const FEOSKitHSessionSearch& Handle, const FEOSKit_Sessions_AttributeData& Parameter, TEnumAsByte<EEOSKit_EComparisonOp> ComparisonOp);
+	static EEOSKitResult EOS_SessionSearch_SetParameter(const FEOSKitHSessionSearch& Handle, const FEOSKit_Sessions_AttributeData& Parameter, EEOSKit_EComparisonOp ComparisonOp);
 
 	UFUNCTION(BlueprintCallable, Category = "EOSKit | SDK Functions | Sessions Interface", DisplayName = "EOS_SessionSearch_SetSessionId")
-	static TEnumAsByte<EEOSKitResult> EOS_SessionSearch_SetSessionId(const FEOSKitHSessionSearch& Handle, const FString& SessionId);
+	static EEOSKitResult EOS_SessionSearch_SetSessionId(const FEOSKitHSessionSearch& Handle, const FString& SessionId);
 
 	UFUNCTION(BlueprintCallable, Category = "EOSKit | SDK Functions | Sessions Interface", DisplayName = "EOS_SessionSearch_SetTargetUserId")
-	static TEnumAsByte<EEOSKitResult> EOS_SessionSearch_SetTargetUserId(const FEOSKitHSessionSearch& Handle, const FEOSKitProductUserId& TargetUserId);
+	static EEOSKitResult EOS_SessionSearch_SetTargetUserId(const FEOSKitHSessionSearch& Handle, const FEOSKitProductUserId& TargetUserId);
 
 private:
 	// Helper function to get Sessions Handle

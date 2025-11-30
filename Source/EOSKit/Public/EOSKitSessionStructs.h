@@ -36,7 +36,7 @@ enum class EEOSKitRegion : uint8
  * Used for cross-platform account mapping
  */
 UENUM(BlueprintType)
-enum EEOSKitExternalAccountType
+enum class EEOSKitExternalAccountType : uint8
 {
 	EKAT_Epic UMETA(DisplayName = "Epic Games"),
 	EKAT_Steam UMETA(DisplayName = "Steam"),
