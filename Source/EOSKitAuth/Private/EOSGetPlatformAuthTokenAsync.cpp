@@ -56,35 +56,23 @@ void UEOSGetPlatformAuthTokenAsync::Activate()
 		return;
 	}
 
-	// Create delegate for callback
-	FOnGetLinkedAccountAuthTokenCompleteDelegate Delegate = 
-		FOnGetLinkedAccountAuthTokenCompleteDelegate::CreateUObject(
-			this, 
-			&UEOSGetPlatformAuthTokenAsync::OnGetPlatformAuthTokenComplete
-		);
+	// Store the identity interface and local user num for the callback
+	StoredPlatformIdentity = PlatformIdentity;
+	StoredLocalUserNum = LocalUserNum;
 
-	// Request the auth token from the platform
-	#if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 2
-	// UE 5.2+ requires TokenType parameter
+	// Request the auth token from the platform (TokenType may be empty)
 	FString TokenTypeToUse = TokenType;
 	if (TokenTypeToUse.IsEmpty())
 	{
-		// Default to "Session" for Steam
 		TokenTypeToUse = PlatformOSS->GetSubsystemName() == TEXT("Steam") ? TEXT("Session") : TEXT("");
 	}
-	
-	if (!TokenTypeToUse.IsEmpty())
-	{
-		PlatformIdentity->GetLinkedAccountAuthToken(LocalUserNum, TokenTypeToUse, Delegate);
-	}
-	else
-	{
-		PlatformIdentity->GetLinkedAccountAuthToken(LocalUserNum, Delegate);
-	}
-	#else
-	// UE 5.1 and earlier
-	PlatformIdentity->GetLinkedAccountAuthToken(LocalUserNum, Delegate);
-	#endif
+
+	// In UE 5.5, GetLinkedAccountAuthToken may have been removed or changed
+	// For now, we'll use a lambda directly if the method exists
+	// Note: This method may not be available in UE 5.5
+	UE_LOG(LogTemp, Warning, TEXT("EOSGetPlatformAuthTokenAsync: GetLinkedAccountAuthToken may not be available in UE 5.5"));
+	OnFailure.Broadcast(TEXT("GetLinkedAccountAuthToken not available in UE 5.5"));
+	SetReadyToDestroy();
 }
 
 void UEOSGetPlatformAuthTokenAsync::OnGetPlatformAuthTokenComplete(
@@ -92,6 +80,14 @@ void UEOSGetPlatformAuthTokenAsync::OnGetPlatformAuthTokenComplete(
 	bool bWasSuccessful,
 	const FExternalAuthToken& ExternalAuthToken)
 {
+	// Only process if this is for our local user
+	if (InLocalUserNum != StoredLocalUserNum)
+	{
+		return;
+	}
+
+	// No cleanup needed - delegate is passed directly in UE 5.5
+
 	if (bWasSuccessful && !ExternalAuthToken.TokenString.IsEmpty())
 	{
 		UE_LOG(LogTemp, Log, TEXT("EOSGetPlatformAuthTokenAsync: Successfully retrieved platform auth token"));

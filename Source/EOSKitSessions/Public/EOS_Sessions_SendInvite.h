@@ -18,7 +18,7 @@ class EOSKITSESSIONS_API UEOS_Sessions_SendInvite : public UBlueprintAsyncAction
 public:
 	// Send an invite to another player
 	UFUNCTION(BlueprintCallable, Category = "EOSKit | SDK Functions | Sessions Interface", DisplayName = "EOS_Sessions_SendInvite", meta = (BlueprintInternalUseOnly = "true"))
-	static UEOS_Sessions_SendInvite* EOS_Sessions_SendInvite(const FString& SessionName, const FEOSKitProductUserId& LocalUserId, const FEOSKitProductUserId& TargetUserId);
+	static UEOS_Sessions_SendInvite* EOK_Sessions_SendInvite(const FString& SessionName, const FEOSKitProductUserId& LocalUserId, const FEOSKitProductUserId& TargetUserId);
 
 	UPROPERTY(BlueprintAssignable, Category = "EOSKit | SDK Functions | Sessions Interface")
 	FEOSKit_OnSendInviteCallback OnCallback;

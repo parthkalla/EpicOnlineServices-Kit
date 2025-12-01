@@ -13,14 +13,14 @@
 UENUM(BlueprintType)
 enum class EEOSKitPlayerReportCategory : uint8
 {
-	Invalid = 0				UMETA(DisplayName = "Invalid"),
-	Cheating = 1			UMETA(DisplayName = "Cheating"),
-	Exploiting = 2			UMETA(DisplayName = "Exploiting"),
+	Invalid = 0			UMETA(DisplayName = "Invalid"),
+	Cheating = 1		UMETA(DisplayName = "Cheating"),
+	Exploiting = 2		UMETA(DisplayName = "Exploiting"),
 	OffensiveProfile = 3	UMETA(DisplayName = "Offensive Profile"),
-	VerbalAbuse = 4			UMETA(DisplayName = "Verbal Abuse"),
-	Scamming = 5			UMETA(DisplayName = "Scamming"),
-	Spamming = 6			UMETA(DisplayName = "Spamming"),
-	Other = 7				UMETA(DisplayName = "Other")
+	VerbalAbuse = 4		UMETA(DisplayName = "Verbal Abuse"),
+	Scamming = 5		UMETA(DisplayName = "Scamming"),
+	Spamming = 6		UMETA(DisplayName = "Spamming"),
+	Other = 7			UMETA(DisplayName = "Other")
 };
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnSendReportComplete, EEOSResult, Result);
@@ -62,7 +62,9 @@ public:
 private:
 	virtual void Activate() override;
 
+#if WITH_EOS_SDK
 	static void EOS_CALL OnSendReportCompleteCallback(const void* Data);
+#endif
 
 	UPROPERTY()
 	UObject* WorldContextObject;

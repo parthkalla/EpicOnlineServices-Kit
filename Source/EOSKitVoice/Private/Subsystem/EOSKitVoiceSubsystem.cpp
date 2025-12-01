@@ -10,11 +10,9 @@
 #include "Kismet/GameplayStatics.h"
 #if WITH_EOS_SDK
 #include "Windows/AllowWindowsPlatformTypes.h"
-#include "Windows/PreWindowsApi.h"
-#include "eos_platform.h"
+#include "eos_sdk.h"
 #include "eos_rtc.h"
 #include "eos_rtc_types.h"
-#include "Windows/PostWindowsApi.h"
 #include "Windows/HideWindowsPlatformTypes.h"
 #endif
 #include "Async/Async.h"
@@ -59,7 +57,7 @@ void UEOSKitVoiceSubsystem::ConnectVoice(const FString& LocalUserId, const FStri
 	if (LocalUserId.IsEmpty() || RoomName.IsEmpty())
 	{
 		UE_LOG(LogTemp, Error, TEXT("EOSKitVoice: Invalid parameters for ConnectVoice"));
-		OnVoiceConnectionComplete.Broadcast(EEOSResult::InvalidParameters, RoomName);
+		OnVoiceConnectionComplete.Broadcast(EEOSResult::EOS_InvalidParameters, RoomName);
 		return;
 	}
 
@@ -80,7 +78,7 @@ void UEOSKitVoiceSubsystem::ConnectVoice(const FString& LocalUserId, const FStri
 	if (!GameInstance)
 	{
 		UE_LOG(LogTemp, Error, TEXT("EOSKitVoice: Failed to get game instance"));
-		OnVoiceConnectionComplete.Broadcast(EEOSResult::InvalidState, RoomName);
+		OnVoiceConnectionComplete.Broadcast(EEOSResult::EOS_InvalidState, RoomName);
 		return;
 	}
 
@@ -88,7 +86,7 @@ void UEOSKitVoiceSubsystem::ConnectVoice(const FString& LocalUserId, const FStri
 	if (!EOSSubsystem || !EOSSubsystem->GetPlatformHandle())
 	{
 		UE_LOG(LogTemp, Error, TEXT("EOSKitVoice: EOS subsystem not initialized"));
-		OnVoiceConnectionComplete.Broadcast(EEOSResult::InvalidState, RoomName);
+		OnVoiceConnectionComplete.Broadcast(EEOSResult::EOS_InvalidState, RoomName);
 		return;
 	}
 
@@ -98,7 +96,7 @@ void UEOSKitVoiceSubsystem::ConnectVoice(const FString& LocalUserId, const FStri
 	if (!RTCHandle)
 	{
 		UE_LOG(LogTemp, Error, TEXT("EOSKitVoice: Failed to get RTC interface"));
-		OnVoiceConnectionComplete.Broadcast(EEOSResult::Failed, RoomName);
+		OnVoiceConnectionComplete.Broadcast(EEOSResult::EOS_ServiceFailure, RoomName);
 		return;
 	}
 
@@ -107,7 +105,7 @@ void UEOSKitVoiceSubsystem::ConnectVoice(const FString& LocalUserId, const FStri
 	if (!LocalPUID)
 	{
 		UE_LOG(LogTemp, Error, TEXT("EOSKitVoice: Invalid Product User ID"));
-		OnVoiceConnectionComplete.Broadcast(EEOSResult::InvalidUser, RoomName);
+		OnVoiceConnectionComplete.Broadcast(EEOSResult::EOS_InvalidUser, RoomName);
 		return;
 	}
 
@@ -145,7 +143,7 @@ void UEOSKitVoiceSubsystem::ConnectVoice(const FString& LocalUserId, const FStri
 			if (Data->ResultCode == EOS_EResult::EOS_Success)
 			{
 				UE_LOG(LogTemp, Log, TEXT("EOSKitVoice: Successfully joined room %s"), *RoomName);
-				Self->OnVoiceConnectionComplete.Broadcast(EEOSResult::Success, RoomName);
+				Self->OnVoiceConnectionComplete.Broadcast(EEOSResult::EOS_Success, RoomName);
 
 #if WITH_EOS_RTC
 				// Initialize voice chat manager
@@ -159,7 +157,7 @@ void UEOSKitVoiceSubsystem::ConnectVoice(const FString& LocalUserId, const FStri
 			{
 				UE_LOG(LogTemp, Error, TEXT("EOSKitVoice: Failed to join room %s: %s"), 
 					*RoomName, UTF8_TO_TCHAR(EOS_EResult_ToString(Data->ResultCode)));
-				Self->OnVoiceConnectionComplete.Broadcast(EEOSResult::Failed, RoomName);
+				Self->OnVoiceConnectionComplete.Broadcast(EEOSResult::EOS_ServiceFailure, RoomName);
 			}
 		});
 	});

@@ -2,14 +2,13 @@
 
 #include "EOSSetPresenceAsync.h"
 #include "EOSKitSubsystem.h"
+#include "EOSKitGameInstanceSubsystem.h"
 #include "Kismet/GameplayStatics.h"
 #if WITH_EOS_SDK
 #include "Windows/AllowWindowsPlatformTypes.h"
-#include "Windows/PreWindowsApi.h"
-#include "eos_platform.h"
+#include "eos_sdk.h"
 #include "eos_presence.h"
 #include "eos_presence_types.h"
-#include "Windows/PostWindowsApi.h"
 #include "Windows/HideWindowsPlatformTypes.h"
 #endif
 
@@ -50,7 +49,7 @@ void UEOSSetPresenceAsync::Activate()
 	}
 
 	// Get Epic Account ID from subsystem
-	FString EpicAccountIdString = EOSSubsystem->GetEpicAccountIdString();
+	FString EpicAccountIdString = UEOSKitGameInstanceSubsystem::GetEpicAccountId(0);
 	if (EpicAccountIdString.IsEmpty())
 	{
 		OnFailure.Broadcast(TEXT(""), EEOSKitPresenceStatus::Offline);
@@ -91,23 +90,23 @@ void UEOSSetPresenceAsync::Activate()
 	}
 
 	// Convert presence status enum to EOS status
-	EOS_Presence_EStatus EOSStatus = EOS_PS_Offline;
+	EOS_Presence_EStatus EOSStatus = EOS_Presence_EStatus::EOS_PS_Offline;
 	switch (PresenceStatusEnum)
 	{
 	case EEOSKitPresenceStatus::Online:
-		EOSStatus = EOS_PS_Online;
+		EOSStatus = EOS_Presence_EStatus::EOS_PS_Online;
 		break;
 	case EEOSKitPresenceStatus::Away:
-		EOSStatus = EOS_PS_Away;
+		EOSStatus = EOS_Presence_EStatus::EOS_PS_Away;
 		break;
 	case EEOSKitPresenceStatus::ExtendedAway:
-		EOSStatus = EOS_PS_ExtendedAway;
+		EOSStatus = EOS_Presence_EStatus::EOS_PS_ExtendedAway;
 		break;
 	case EEOSKitPresenceStatus::Offline:
-		EOSStatus = EOS_PS_Offline;
+		EOSStatus = EOS_Presence_EStatus::EOS_PS_Offline;
 		break;
 	case EEOSKitPresenceStatus::DoNotDisturb:
-		EOSStatus = EOS_PS_DoNotDisturb;
+		EOSStatus = EOS_Presence_EStatus::EOS_PS_DoNotDisturb;
 		break;
 	}
 

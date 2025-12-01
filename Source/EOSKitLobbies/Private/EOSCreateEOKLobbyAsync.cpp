@@ -6,11 +6,8 @@
 #include "OnlineSessionSettings.h"
 #if WITH_EOS_SDK
 #include "Windows/AllowWindowsPlatformTypes.h"
-#include "Windows/PreWindowsApi.h"
-#include "eos_platform.h"
-#include "eos_lobby.h"
 #include "eos_sdk.h"
-#include "Windows/PostWindowsApi.h"
+#include "eos_lobby.h"
 #include "Windows/HideWindowsPlatformTypes.h"
 #endif
 #include "Async/Async.h"
@@ -25,7 +22,7 @@ struct FEOKLobbyCreateContext
 	TArray<TArray<uint8>> AttributeValuesUTF8;
 	EOS_HLobbyModification LobbyModHandle = nullptr;
 	// Store callback result data
-	EOS_EResult ResultCode = EOS_EResult::EOS_NotConfigured;
+	int32 ResultCode = static_cast<int32>(EOS_EResult::EOS_NotConfigured);
 	FString LobbyId;
 };
 
@@ -172,7 +169,7 @@ void UEOSCreateEOKLobbyAsync::CreateLobby()
 
 			// CRITICAL: Copy callback data into context before scheduling async task
 			// The Data pointer may become invalid after the callback returns
-			Context->ResultCode = Data->ResultCode;
+			Context->ResultCode = static_cast<int32>(Data->ResultCode);
 			if (Data->LobbyId && strlen(Data->LobbyId) > 0)
 			{
 				Context->LobbyId = UTF8_TO_TCHAR(Data->LobbyId);
@@ -183,7 +180,7 @@ void UEOSCreateEOKLobbyAsync::CreateLobby()
 			AsyncTask(ENamedThreads::GameThread, [Context, AsyncNode]()
 			{
 				// Log raw ResultCode for debugging
-				const char* ResultStr = EOS_EResult_ToString(Context->ResultCode);
+				const char* ResultStr = EOS_EResult_ToString(static_cast<EOS_EResult>(Context->ResultCode));
 				UE_LOG(LogTemp, Warning, TEXT("EOSKit: [CALLBACK] Raw ResultCode value: %d (0x%08X) = %s"), 
 					static_cast<int32>(Context->ResultCode), 
 					static_cast<uint32>(Context->ResultCode),
@@ -194,7 +191,7 @@ void UEOSCreateEOKLobbyAsync::CreateLobby()
 				bool bHasLobbyId = !Context->LobbyId.IsEmpty();
 				
 				// EOS_Success is 0, so check both ways
-				bool bIsSuccess = (Context->ResultCode == EOS_EResult::EOS_Success) || (Context->ResultCode == 0);
+				bool bIsSuccess = (Context->ResultCode == static_cast<int32>(EOS_EResult::EOS_Success)) || (Context->ResultCode == 0);
 				
 				// If we have a LobbyId, treat it as success even if ResultCode says otherwise
 				// This handles cases where EOS creates the lobby but returns a warning code

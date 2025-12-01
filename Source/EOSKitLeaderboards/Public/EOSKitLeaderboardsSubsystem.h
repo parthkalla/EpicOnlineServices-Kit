@@ -10,9 +10,7 @@
 
 #if WITH_EOS_SDK
 #include "Windows/AllowWindowsPlatformTypes.h"
-#include "Windows/PreWindowsApi.h"
 #include "eos_leaderboards.h"
-#include "Windows/PostWindowsApi.h"
 #include "Windows/HideWindowsPlatformTypes.h"
 #endif
 
@@ -184,9 +182,9 @@ private:
 	EOS_HLeaderboards GetLeaderboardsHandle() const;
 
 	// Callback handlers
-	static void EOS_CALL OnQueryLeaderboardDefinitionsCompleteCallback(const void* Data);
-	static void EOS_CALL OnQueryLeaderboardRanksCompleteCallback(const void* Data);
-	static void EOS_CALL OnQueryLeaderboardUserScoresCompleteCallback(const void* Data);
+	static void EOS_CALL OnQueryLeaderboardDefinitionsCompleteCallback(const EOS_Leaderboards_OnQueryLeaderboardDefinitionsCompleteCallbackInfo* Data);
+	static void EOS_CALL OnQueryLeaderboardRanksCompleteCallback(const EOS_Leaderboards_OnQueryLeaderboardRanksCompleteCallbackInfo* Data);
+	static void EOS_CALL OnQueryLeaderboardUserScoresCompleteCallback(const EOS_Leaderboards_OnQueryLeaderboardUserScoresCompleteCallbackInfo* Data);
 
 	// Delegates
 	FEOSKitOnQueryLeaderboardDefinitionsComplete OnQueryLeaderboardDefinitionsCompleteDelegate;

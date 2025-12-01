@@ -18,7 +18,7 @@ class EOSKITSESSIONS_API UEOS_Sessions_DestroySession : public UBlueprintAsyncAc
 public:
 	// Destroy a session given a session name
 	UFUNCTION(BlueprintCallable, Category = "EOSKit | SDK Functions | Sessions Interface", DisplayName = "EOS_Sessions_DestroySession", meta = (BlueprintInternalUseOnly = "true"))
-	static UEOS_Sessions_DestroySession* EOS_Sessions_DestroySession(const FString& SessionName);
+	static UEOS_Sessions_DestroySession* EOK_Sessions_DestroySession(const FString& SessionName);
 
 	UPROPERTY(BlueprintAssignable, Category = "EOSKit | SDK Functions | Sessions Interface")
 	FEOSKit_OnDestroySessionCallback OnCallback;

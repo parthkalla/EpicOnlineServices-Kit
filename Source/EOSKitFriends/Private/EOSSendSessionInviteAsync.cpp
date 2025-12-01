@@ -66,7 +66,12 @@ void UEOSSendSessionInviteAsync::Activate()
 		return;
 	}
 
+#if WITH_EOS_SDK
+	EOS_ProductUserId LocalPUID = EOS_ProductUserId_FromString(TCHAR_TO_UTF8(*ProductUserIdString));
+	FEOSKitProductUserId LocalUserId(LocalPUID);
+#else
 	FEOSKitProductUserId LocalUserId(ProductUserIdString);
+#endif
 
 	// TODO: Convert Epic Account ID to Product User ID
 	// For now, we'll need to get the Product User ID from the friend's Epic Account ID

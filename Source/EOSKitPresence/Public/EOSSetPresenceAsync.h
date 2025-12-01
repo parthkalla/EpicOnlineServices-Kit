@@ -7,6 +7,12 @@
 #include "EOSKitPresenceTypes.h"
 #include "EOSSetPresenceAsync.generated.h"
 
+#if WITH_EOS_SDK
+#include "Windows/AllowWindowsPlatformTypes.h"
+#include "eos_presence_types.h"
+#include "Windows/HideWindowsPlatformTypes.h"
+#endif
+
 /**
  * Delegate for set presence completion
  */

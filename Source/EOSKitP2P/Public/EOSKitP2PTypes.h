@@ -3,8 +3,13 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "EOSKitSharedTypes.h"
 #include "EOSKitP2PTypes.generated.h"
+
+#if WITH_EOS_SDK
+#include "Windows/AllowWindowsPlatformTypes.h"
+#include "eos_p2p_types.h"
+#include "Windows/HideWindowsPlatformTypes.h"
+#endif
 
 /**
  * P2P Socket ID wrapper

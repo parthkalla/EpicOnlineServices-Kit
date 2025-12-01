@@ -5,10 +5,8 @@
 #include "Kismet/GameplayStatics.h"
 #if WITH_EOS_SDK
 #include "Windows/AllowWindowsPlatformTypes.h"
-#include "Windows/PreWindowsApi.h"
-#include "eos_platform.h"
+#include "eos_sdk.h"
 #include "eos_sessions.h"
-#include "Windows/PostWindowsApi.h"
 #include "Windows/HideWindowsPlatformTypes.h"
 #endif
 #include "Async/Async.h"
@@ -99,7 +97,7 @@ void UEOS_Sessions_UpdateSession::Activate()
 	UpdateSessionOptions.ApiVersion = EOS_SESSIONS_UPDATESESSION_API_LATEST;
 	UpdateSessionOptions.SessionModificationHandle = SessionModHandle;
 
-	EOS_Sessions_UpdateSession(SessionsHandle, &UpdateSessionOptions, this, &UEOS_Sessions_UpdateSession::OnUpdateSessionCallback);
+	::EOS_Sessions_UpdateSession(SessionsHandle, &UpdateSessionOptions, this, &UEOS_Sessions_UpdateSession::OnUpdateSessionCallback);
 }
 
 void UEOS_Sessions_UpdateSession::OnUpdateSessionCallback(const EOS_Sessions_UpdateSessionCallbackInfo* Data)

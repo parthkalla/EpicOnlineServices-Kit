@@ -7,10 +7,8 @@
 #include "Misc/Parse.h"
 #if WITH_EOS_SDK
 #include "Windows/AllowWindowsPlatformTypes.h"
-#include "Windows/PreWindowsApi.h"
-#include "eos_platform.h"
+#include "eos_sdk.h"
 #include "eos_p2p.h"
-#include "Windows/PostWindowsApi.h"
 #include "Windows/HideWindowsPlatformTypes.h"
 #endif
 

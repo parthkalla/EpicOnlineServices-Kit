@@ -2,16 +2,15 @@
 
 #include "EOSGetFriendListAsync.h"
 #include "EOSKitSubsystem.h"
+#include "EOSKitGameInstanceSubsystem.h"
 #include "EOSKitFriendsSubsystem.h"
 #include "EOSKitSharedTypes.h"
 #include "Kismet/GameplayStatics.h"
 #if WITH_EOS_SDK
 #include "Windows/AllowWindowsPlatformTypes.h"
-#include "Windows/PreWindowsApi.h"
-#include "eos_platform.h"
+#include "eos_sdk.h"
 #include "eos_friends.h"
 #include "eos_friends_types.h"
-#include "Windows/PostWindowsApi.h"
 #include "Windows/HideWindowsPlatformTypes.h"
 #endif
 
@@ -48,7 +47,7 @@ void UEOSGetFriendListAsync::Activate()
 	}
 
 	// Get Epic Account ID from subsystem
-	FString EpicAccountIdString = EOSSubsystem->GetEpicAccountIdString();
+	FString EpicAccountIdString = UEOSKitGameInstanceSubsystem::GetEpicAccountId(0);
 	if (EpicAccountIdString.IsEmpty())
 	{
 		OnFailure.Broadcast(TArray<FEOSKitFriendData>(), TEXT("User not logged in"));

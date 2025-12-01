@@ -1,5 +1,3 @@
-// Copyright (C) 2024, All Rights Reserved.
-
 using UnrealBuildTool;
 
 public class EOSKitSockets : ModuleRules
@@ -18,10 +16,9 @@ public class EOSKitSockets : ModuleRules
 				"Networking",
 				"NetCore",
 				"EOSSDK",
-				"EOSShared",
-				"EOSKit",
 				"EOSKitShared",
-				"OnlineSubsystemUtils" // Needed for UIpNetDriver
+				"OnlineSubsystemUtils",
+				"EOSKit"
 			}
 		);
 			

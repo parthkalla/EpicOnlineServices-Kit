@@ -41,7 +41,7 @@ struct FEOSKitAttributeData
 	GENERATED_BODY()
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "EOSKit")
-	TEnumAsByte<EEOSKitAttributeType> AttributeType = EEOSKitAttributeType::String;
+	EEOSKitAttributeType AttributeType = EEOSKitAttributeType::String;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "EOSKit")
 	FString StringValue = "";

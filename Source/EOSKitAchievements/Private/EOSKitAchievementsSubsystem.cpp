@@ -5,11 +5,9 @@
 #include "Kismet/GameplayStatics.h"
 #if WITH_EOS_SDK
 #include "Windows/AllowWindowsPlatformTypes.h"
-#include "Windows/PreWindowsApi.h"
-#include "eos_platform.h"
+#include "eos_sdk.h"
 #include "eos_achievements.h"
 #include "eos_achievements_types.h"
-#include "Windows/PostWindowsApi.h"
 #include "Windows/HideWindowsPlatformTypes.h"
 #endif
 #include "EOSKitSharedTypes.h"
@@ -114,14 +112,14 @@ EEOSResult UEOSKitAchievementsSubsystem::UnlockAchievements(const FEOSKitProduct
 	Options.UserId = LocalUserId.GetValueAsEosType();
 
 	// Convert FString array to const char* array
-	TArray<FTCHARToUTF8> Converters;
 	TArray<const char*> AchievementIdPtrs;
-	Converters.Reserve(AchievementIds.Num());
 	AchievementIdPtrs.Reserve(AchievementIds.Num());
+	TArray<FTCHARToUTF8, TInlineAllocator<32>> Converters;
+	Converters.Reserve(AchievementIds.Num());
 
 	for (const FString& AchievementId : AchievementIds)
 	{
-		Converters.Add(FTCHARToUTF8(*AchievementId));
+		Converters.Emplace(*AchievementId);
 		AchievementIdPtrs.Add(Converters.Last().Get());
 	}
 
@@ -384,12 +382,14 @@ void EOS_CALL UEOSKitAchievementsSubsystem::OnAchievementsUnlockedV2Callback(con
 	int64 UnlockTime = Data->UnlockTime;
 
 	// Find and call the stored callback delegate
-	EOS_NotificationId EOSNotificationId = Data->NotificationId;
-	if (FOnEOSAchievementsUnlockedDelegate* Callback = Self->AchievementsUnlockedCallbacks.Find(EOSNotificationId))
+	// Note: EOS_Achievements_OnAchievementsUnlockedCallbackV2Info does not have NotificationId
+	// We need to call all registered callbacks since we can't identify which specific one to call
+	for (auto& Pair : Self->AchievementsUnlockedCallbacks)
 	{
-		AsyncTask(ENamedThreads::GameThread, [Callback, UserId, AchievementId, UnlockTime]()
+		FOnEOSAchievementsUnlockedDelegate CallbackCopy = Pair.Value;
+		AsyncTask(ENamedThreads::GameThread, [CallbackCopy, UserId, AchievementId, UnlockTime]()
 		{
-			Callback->ExecuteIfBound(UserId, AchievementId, UnlockTime);
+			CallbackCopy.ExecuteIfBound(UserId, AchievementId, UnlockTime);
 		});
 	}
 

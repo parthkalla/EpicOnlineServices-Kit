@@ -5,15 +5,14 @@
 #include "Kismet/GameplayStatics.h"
 #if WITH_EOS_SDK
 #include "Windows/AllowWindowsPlatformTypes.h"
-#include "Windows/PreWindowsApi.h"
-#include "eos_platform.h"
+#include "eos_sdk.h"
+#include "eos_connect_types.h"
 #include "eos_sessions.h"
-#include "Windows/PostWindowsApi.h"
 #include "Windows/HideWindowsPlatformTypes.h"
 #endif
 #include "Async/Async.h"
 
-UEOS_Sessions_UnregisterPlayers* UEOS_Sessions_UnregisterPlayers::EOS_Sessions_UnregisterPlayers(const FString& SessionName, const TArray<FEOSKitProductUserId>& PlayersToUnregister)
+UEOS_Sessions_UnregisterPlayers* UEOS_Sessions_UnregisterPlayers::EOK_Sessions_UnregisterPlayers(const FString& SessionName, const TArray<FEOSKitProductUserId>& PlayersToUnregister)
 {
 	UEOS_Sessions_UnregisterPlayers* Node = NewObject<UEOS_Sessions_UnregisterPlayers>();
 	Node->Var_SessionName = SessionName;
@@ -106,7 +105,7 @@ void UEOS_Sessions_UnregisterPlayers::Activate()
 		UnregisterPlayersOptions.PlayersToUnregister[i] = Var_PlayersToUnregister[i].GetValueAsEosType();
 	}
 
-	EOS_Sessions_UnregisterPlayers(SessionsHandle, &UnregisterPlayersOptions, this, &UEOS_Sessions_UnregisterPlayers::OnUnregisterPlayersCallback);
+	::EOS_Sessions_UnregisterPlayers(SessionsHandle, &UnregisterPlayersOptions, this, &UEOS_Sessions_UnregisterPlayers::OnUnregisterPlayersCallback);
 	delete[] UnregisterPlayersOptions.PlayersToUnregister;
 }
 

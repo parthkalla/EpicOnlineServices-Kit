@@ -5,15 +5,13 @@
 #include "Kismet/GameplayStatics.h"
 #if WITH_EOS_SDK
 #include "Windows/AllowWindowsPlatformTypes.h"
-#include "Windows/PreWindowsApi.h"
-#include "eos_platform.h"
+#include "eos_sdk.h"
 #include "eos_sessions.h"
-#include "Windows/PostWindowsApi.h"
 #include "Windows/HideWindowsPlatformTypes.h"
 #endif
 #include "Async/Async.h"
 
-UEOS_Sessions_SendInvite* UEOS_Sessions_SendInvite::EOS_Sessions_SendInvite(const FString& SessionName, const FEOSKitProductUserId& LocalUserId, const FEOSKitProductUserId& TargetUserId)
+UEOS_Sessions_SendInvite* UEOS_Sessions_SendInvite::EOK_Sessions_SendInvite(const FString& SessionName, const FEOSKitProductUserId& LocalUserId, const FEOSKitProductUserId& TargetUserId)
 {
 	UEOS_Sessions_SendInvite* Node = NewObject<UEOS_Sessions_SendInvite>();
 	Node->Var_SessionName = SessionName;
@@ -117,7 +115,7 @@ void UEOS_Sessions_SendInvite::Activate()
 	SendInviteOptions.LocalUserId = LocalUserIdEOS;
 	SendInviteOptions.TargetUserId = TargetUserIdEOS;
 
-	EOS_Sessions_SendInvite(SessionsHandle, &SendInviteOptions, this, &UEOS_Sessions_SendInvite::OnSendInviteCallback);
+	::EOS_Sessions_SendInvite(SessionsHandle, &SendInviteOptions, this, &UEOS_Sessions_SendInvite::OnSendInviteCallback);
 }
 
 void UEOS_Sessions_SendInvite::OnSendInviteCallback(const EOS_Sessions_SendInviteCallbackInfo* Data)

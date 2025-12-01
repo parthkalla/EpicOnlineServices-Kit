@@ -255,12 +255,14 @@ public:
 	
 	/** Helper function to generate a 64-character hex encryption key */
 	static FString GenerateRandomEncryptionKey();
+	
+	/** Write full config to Engine.ini (public for editor tools) */
+	void WriteFullConfigToEngineIni();
 #endif
 
 private:
 #if WITH_EDITOR
 	void SaveToDefaultEngineIni();
-	void WriteFullConfigToEngineIni();
 #endif
 
 	static bool AutoGetSettingsForArtifact(const FString& ArtifactName, FEOSArtifact& OutSettings);

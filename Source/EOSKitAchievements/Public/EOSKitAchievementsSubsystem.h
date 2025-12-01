@@ -10,10 +10,8 @@
 
 #if WITH_EOS_SDK
 #include "Windows/AllowWindowsPlatformTypes.h"
-#include "Windows/PreWindowsApi.h"
 #include "eos_achievements.h"
 #include "eos_achievements_types.h"
-#include "Windows/PostWindowsApi.h"
 #include "Windows/HideWindowsPlatformTypes.h"
 #endif
 
@@ -163,7 +161,7 @@ private:
 	UEOSKitSubsystem* GetEOSKitSubsystem() const;
 	EOS_HAchievements GetAchievementsHandle() const;
 
-	static void EOS_CALL OnAchievementsUnlockedV2Callback(const EOS_Achievements_OnAchievementsUnlockedV2CallbackInfo* Data);
+	static void EOS_CALL OnAchievementsUnlockedV2Callback(const EOS_Achievements_OnAchievementsUnlockedCallbackV2Info* Data);
 
 	TMap<int32, EOS_NotificationId> NotificationIdMap;
 	TMap<EOS_NotificationId, FOnEOSAchievementsUnlockedDelegate> AchievementsUnlockedCallbacks;

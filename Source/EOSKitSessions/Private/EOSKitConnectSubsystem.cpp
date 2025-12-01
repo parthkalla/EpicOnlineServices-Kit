@@ -4,11 +4,9 @@
 #include "EOSKitSubsystem.h"
 #if WITH_EOS_SDK
 #include "Windows/AllowWindowsPlatformTypes.h"
-#include "Windows/PreWindowsApi.h"
-#include "eos_platform.h"
+#include "eos_sdk.h"
 #include "eos_connect.h"
 #include "eos_connect_types.h"
-#include "Windows/PostWindowsApi.h"
 #include "Windows/HideWindowsPlatformTypes.h"
 #endif
 #include "Async/Async.h"
@@ -263,7 +261,7 @@ bool UEOSKitConnectSubsystem::CopyProductUserExternalAccountByAccountId(
 
 bool UEOSKitConnectSubsystem::CopyProductUserExternalAccountByAccountType(
 	const FString& ProductUserId,
-	TEnumAsByte<EEOSKitExternalAccountType> AccountType,
+	EEOSKitExternalAccountType AccountType,
 	FEOSKitExternalAccountInfo& OutAccountInfo)
 {
 	UEOSKitSubsystem* EOSKitSubsystem = GetEOSKitSubsystem();
@@ -289,7 +287,7 @@ bool UEOSKitConnectSubsystem::CopyProductUserExternalAccountByAccountType(
 	EOS_Connect_CopyProductUserExternalAccountByAccountTypeOptions Options = {};
 	Options.ApiVersion = EOS_CONNECT_COPYPRODUCTUSEREXTERNALACCOUNTBYACCOUNTTYPE_API_LATEST;
 	Options.TargetUserId = UserId;
-	Options.AccountIdType = static_cast<EOS_EExternalAccountType>(AccountType.GetValue());
+	Options.AccountIdType = static_cast<EOS_EExternalAccountType>(AccountType);
 	
 	EOS_Connect_ExternalAccountInfo* AccountInfo = nullptr;
 	EOS_EResult Result = EOS_Connect_CopyProductUserExternalAccountByAccountType(ConnectHandle, &Options, &AccountInfo);
@@ -454,7 +452,7 @@ bool UEOSKitConnectSubsystem::CopyProductUserInfo(
 
 FString UEOSKitConnectSubsystem::GetExternalAccountMapping(
 	const FString& LocalUserId,
-	TEnumAsByte<EEOSKitExternalAccountType> AccountType,
+	EEOSKitExternalAccountType AccountType,
 	const FString& TargetExternalUserId)
 {
 	UEOSKitSubsystem* EOSKitSubsystem = GetEOSKitSubsystem();
@@ -480,7 +478,7 @@ FString UEOSKitConnectSubsystem::GetExternalAccountMapping(
 	EOS_Connect_GetExternalAccountMappingsOptions Options = {};
 	Options.ApiVersion = EOS_CONNECT_GETEXTERNALACCOUNTMAPPING_API_LATEST;
 	Options.LocalUserId = UserId;
-	Options.AccountIdType = static_cast<EOS_EExternalAccountType>(AccountType.GetValue());
+	Options.AccountIdType = static_cast<EOS_EExternalAccountType>(AccountType);
 	
 	if (!TargetExternalUserId.IsEmpty())
 	{
@@ -502,7 +500,7 @@ FString UEOSKitConnectSubsystem::GetExternalAccountMapping(
 
 bool UEOSKitConnectSubsystem::GetProductUserIdMapping(
 	const FString& LocalUserId,
-	TEnumAsByte<EEOSKitExternalAccountType> AccountType,
+	EEOSKitExternalAccountType AccountType,
 	const FString& TargetUserId,
 	FString& OutExternalAccountId)
 {
@@ -531,7 +529,7 @@ bool UEOSKitConnectSubsystem::GetProductUserIdMapping(
 	EOS_Connect_GetProductUserIdMappingOptions Options = {};
 	Options.ApiVersion = EOS_CONNECT_GETPRODUCTUSERIDMAPPING_API_LATEST;
 	Options.LocalUserId = LocalProductUserId;
-	Options.AccountIdType = static_cast<EOS_EExternalAccountType>(AccountType.GetValue());
+	Options.AccountIdType = static_cast<EOS_EExternalAccountType>(AccountType);
 	Options.TargetProductUserId = TargetProductUserId;
 	
 	char Buffer[EOS_CONNECT_EXTERNAL_ACCOUNT_ID_MAX_LENGTH + 1];
@@ -600,7 +598,7 @@ FString UEOSKitConnectSubsystem::GetLoggedInUserByIndex(int32 Index) const
 	return FString();
 }
 
-TEnumAsByte<EEOSKitLoginStatus> UEOSKitConnectSubsystem::GetLoginStatus(const FString& ProductUserId) const
+EEOSKitLoginStatus UEOSKitConnectSubsystem::GetLoginStatus(const FString& ProductUserId) const
 {
 	UEOSKitSubsystem* EOSKitSubsystem = GetEOSKitSubsystem();
 	if (!EOSKitSubsystem || !EOSKitSubsystem->GetPlatformHandle())

@@ -5,11 +5,9 @@
 #include "Kismet/GameplayStatics.h"
 #if WITH_EOS_SDK
 #include "Windows/AllowWindowsPlatformTypes.h"
-#include "Windows/PreWindowsApi.h"
-#include "eos_platform.h"
+#include "eos_sdk.h"
 #include "eos_ui.h"
 #include "eos_ui_types.h"
-#include "Windows/PostWindowsApi.h"
 #include "Windows/HideWindowsPlatformTypes.h"
 #endif
 #include "EOSKitSharedTypes.h"
@@ -247,12 +245,14 @@ void EOS_CALL UEOSKitUiSubsystem::OnDisplaySettingsUpdatedCallback(const EOS_UI_
 	bool bIsExclusiveInput = Data->bIsExclusiveInput == EOS_TRUE;
 
 	// Find and call the stored callback delegate
-	EOS_NotificationId EOSNotificationId = Data->NotificationId;
-	if (FOnEOSDisplaySettingsUpdatedDelegate* Callback = Self->DisplaySettingsUpdatedCallbacks.Find(EOSNotificationId))
+	// Note: EOS_UI_OnDisplaySettingsUpdatedCallbackInfo does not have NotificationId
+	// We need to call all registered callbacks since we can't identify which specific one to call
+	for (auto& Pair : Self->DisplaySettingsUpdatedCallbacks)
 	{
-		AsyncTask(ENamedThreads::GameThread, [Callback, bIsVisible, bIsExclusiveInput]()
+		FOnEOSDisplaySettingsUpdatedDelegate CallbackCopy = Pair.Value;
+		AsyncTask(ENamedThreads::GameThread, [CallbackCopy, bIsVisible, bIsExclusiveInput]()
 		{
-			Callback->ExecuteIfBound(bIsVisible, bIsExclusiveInput);
+			CallbackCopy.ExecuteIfBound(bIsVisible, bIsExclusiveInput);
 		});
 	}
 

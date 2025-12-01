@@ -40,7 +40,7 @@ public:
 private:
 	virtual void Activate() override;
 
-	static void EOS_CALL OnOpenReportsUICompleteCallback(const void* Data);
+	static void EOS_CALL OnOpenReportsUICompleteCallback(const EOS_UI_OnShowReportPlayerCallbackInfo* Data);
 
 	UPROPERTY()
 	UObject* WorldContextObject;

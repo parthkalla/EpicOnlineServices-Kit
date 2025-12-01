@@ -5,11 +5,9 @@
 #include "Kismet/GameplayStatics.h"
 #if WITH_EOS_SDK
 #include "Windows/AllowWindowsPlatformTypes.h"
-#include "Windows/PreWindowsApi.h"
-#include "eos_platform.h"
+#include "eos_sdk.h"
 #include "eos_ecom.h"
 #include "eos_ecom_types.h"
-#include "Windows/PostWindowsApi.h"
 #include "Windows/HideWindowsPlatformTypes.h"
 #endif
 #include "EOSKitSharedTypes.h"
@@ -81,17 +79,19 @@ EEOSResult UEOSKitEcomSubsystem::QueryOwnership(const FEOSKitEpicAccountId& Loca
 	EOS_Ecom_QueryOwnershipOptions Options = {};
 	Options.ApiVersion = EOS_ECOM_QUERYOWNERSHIP_API_LATEST;
 	Options.LocalUserId = LocalUserId.GetValueAsEosType();
-	Options.OverrideCatalogNamespace = OverrideCatalogNamespace.IsEmpty() ? nullptr : TCHAR_TO_UTF8(*OverrideCatalogNamespace);
+	Options.CatalogNamespace = OverrideCatalogNamespace.IsEmpty() ? nullptr : TCHAR_TO_UTF8(*OverrideCatalogNamespace);
 
 	// Convert FString array to const char* array
-	TArray<FTCHARToUTF8> Converters;
 	TArray<const char*> CatalogItemIdPtrs;
-	Converters.Reserve(CatalogItemIds.Num());
 	CatalogItemIdPtrs.Reserve(CatalogItemIds.Num());
+	
+	// Use stack-allocated converters to avoid move constructor issues
+	TArray<FTCHARToUTF8, TInlineAllocator<32>> Converters;
+	Converters.Reserve(CatalogItemIds.Num());
 
 	for (const FString& CatalogItemId : CatalogItemIds)
 	{
-		Converters.Add(FTCHARToUTF8(*CatalogItemId));
+		Converters.Emplace(*CatalogItemId);
 		CatalogItemIdPtrs.Add(Converters.Last().Get());
 	}
 
@@ -121,17 +121,19 @@ EEOSResult UEOSKitEcomSubsystem::QueryOwnershipToken(const FEOSKitEpicAccountId&
 	EOS_Ecom_QueryOwnershipTokenOptions Options = {};
 	Options.ApiVersion = EOS_ECOM_QUERYOWNERSHIPTOKEN_API_LATEST;
 	Options.LocalUserId = LocalUserId.GetValueAsEosType();
-	Options.OverrideCatalogNamespace = OverrideCatalogNamespace.IsEmpty() ? nullptr : TCHAR_TO_UTF8(*OverrideCatalogNamespace);
+	Options.CatalogNamespace = OverrideCatalogNamespace.IsEmpty() ? nullptr : TCHAR_TO_UTF8(*OverrideCatalogNamespace);
 
 	// Convert FString array to const char* array
-	TArray<FTCHARToUTF8> Converters;
 	TArray<const char*> CatalogItemIdPtrs;
-	Converters.Reserve(CatalogItemIds.Num());
 	CatalogItemIdPtrs.Reserve(CatalogItemIds.Num());
+	
+	// Use stack-allocated converters to avoid move constructor issues
+	TArray<FTCHARToUTF8, TInlineAllocator<32>> Converters;
+	Converters.Reserve(CatalogItemIds.Num());
 
 	for (const FString& CatalogItemId : CatalogItemIds)
 	{
-		Converters.Add(FTCHARToUTF8(*CatalogItemId));
+		Converters.Emplace(*CatalogItemId);
 		CatalogItemIdPtrs.Add(Converters.Last().Get());
 	}
 
@@ -156,19 +158,19 @@ EEOSResult UEOSKitEcomSubsystem::QueryEntitlements(const FEOSKitEpicAccountId& L
 	Options.ApiVersion = EOS_ECOM_QUERYENTITLEMENTS_API_LATEST;
 	Options.LocalUserId = LocalUserId.GetValueAsEosType();
 	Options.bIncludeRedeemed = bIncludeRedeemed ? EOS_TRUE : EOS_FALSE;
-	Options.OverrideCatalogNamespace = OverrideCatalogNamespace.IsEmpty() ? nullptr : TCHAR_TO_UTF8(*OverrideCatalogNamespace);
+	// OverrideCatalogNamespace was removed in SDK 1.18
 
 	// Convert FString array to const char* array if provided
 	if (EntitlementNames.Num() > 0)
 	{
-		TArray<FTCHARToUTF8> Converters;
 		TArray<const char*> EntitlementNamePtrs;
-		Converters.Reserve(EntitlementNames.Num());
 		EntitlementNamePtrs.Reserve(EntitlementNames.Num());
+		TArray<FTCHARToUTF8, TInlineAllocator<32>> Converters;
+		Converters.Reserve(EntitlementNames.Num());
 
 		for (const FString& EntitlementName : EntitlementNames)
 		{
-			Converters.Add(FTCHARToUTF8(*EntitlementName));
+			Converters.Emplace(*EntitlementName);
 			EntitlementNamePtrs.Add(Converters.Last().Get());
 		}
 
@@ -206,14 +208,14 @@ EEOSResult UEOSKitEcomSubsystem::RedeemEntitlements(const FEOSKitEpicAccountId& 
 	Options.LocalUserId = LocalUserId.GetValueAsEosType();
 
 	// Convert FString array to const char* array
-	TArray<FTCHARToUTF8> Converters;
 	TArray<const char*> EntitlementIdPtrs;
-	Converters.Reserve(EntitlementIds.Num());
 	EntitlementIdPtrs.Reserve(EntitlementIds.Num());
+	TArray<FTCHARToUTF8, TInlineAllocator<32>> Converters;
+	Converters.Reserve(EntitlementIds.Num());
 
 	for (const FString& EntitlementId : EntitlementIds)
 	{
-		Converters.Add(FTCHARToUTF8(*EntitlementId));
+		Converters.Emplace(*EntitlementId);
 		EntitlementIdPtrs.Add(Converters.Last().Get());
 	}
 
@@ -247,14 +249,14 @@ EEOSResult UEOSKitEcomSubsystem::Checkout(const FEOSKitEpicAccountId& LocalUserI
 	// Convert FString array to EOS_Ecom_CheckoutEntry array
 	TArray<EOS_Ecom_CheckoutEntry> Entries;
 	Entries.Reserve(OfferIds.Num());
-	TArray<FTCHARToUTF8> Converters;
+	TArray<FTCHARToUTF8, TInlineAllocator<32>> Converters;
 	Converters.Reserve(OfferIds.Num());
 
 	for (const FString& OfferId : OfferIds)
 	{
 		EOS_Ecom_CheckoutEntry Entry = {};
 		Entry.ApiVersion = EOS_ECOM_CHECKOUTENTRY_API_LATEST;
-		Converters.Add(FTCHARToUTF8(*OfferId));
+		Converters.Emplace(*OfferId);
 		Entry.OfferId = Converters.Last().Get();
 		Entries.Add(Entry);
 	}

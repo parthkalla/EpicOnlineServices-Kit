@@ -1,6 +1,7 @@
 // Copyright (C) 2024, All Rights Reserved.
 
 #include "EOSKitPingClient.h"
+#include "FindSessionsCallbackProxy.h"
 #include "OnlineSubsystemUtils.h"
 #include "Interfaces/OnlineSessionInterface.h"
 #include "Misc/ConfigCacheIni.h"

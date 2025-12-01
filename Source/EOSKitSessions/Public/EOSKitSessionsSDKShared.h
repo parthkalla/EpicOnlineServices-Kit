@@ -3,13 +3,11 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "EOSKitSharedTypes.h"
 #if WITH_EOS_SDK
 #include "Windows/AllowWindowsPlatformTypes.h"
-#include "Windows/PreWindowsApi.h"
+#include "eos_common.h"
 #include "eos_sessions.h"
 #include "eos_sessions_types.h"
-#include "Windows/PostWindowsApi.h"
 #include "Windows/HideWindowsPlatformTypes.h"
 #endif
 #include "EOSKitSessionsSDKShared.generated.h"
@@ -27,7 +25,9 @@ enum class EEOSKitResult : uint8
 	InvalidUser UMETA(DisplayName = "Invalid User"),
 	NotFound UMETA(DisplayName = "Not Found"),
 	AlreadyExists UMETA(DisplayName = "Already Exists"),
+	DuplicateNotAllowed UMETA(DisplayName = "Duplicate Not Allowed"),
 	TimedOut UMETA(DisplayName = "Timed Out"),
+	Canceled UMETA(DisplayName = "Canceled"),
 	Cancelled UMETA(DisplayName = "Cancelled"),
 	NoConnection UMETA(DisplayName = "No Connection"),
 	LimitExceeded UMETA(DisplayName = "Limit Exceeded"),
@@ -36,36 +36,11 @@ enum class EEOSKitResult : uint8
 };
 
 // Helper function to convert EOS_EResult to EEOSKitResult
-inline EEOSKitResult ConvertEOSResult(EOS_EResult Result)
-{
-	switch (Result)
-	{
-	case EOS_EResult::EOS_Success:
-		return EEOSKitResult::Success;
-	case EOS_EResult::EOS_InvalidParameters:
-		return EEOSKitResult::InvalidParameters;
-	case EOS_EResult::EOS_InvalidState:
-		return EEOSKitResult::InvalidState;
-	case EOS_EResult::EOS_InvalidUser:
-		return EEOSKitResult::InvalidUser;
-	case EOS_EResult::EOS_NotFound:
-		return EEOSKitResult::NotFound;
-	case EOS_EResult::EOS_AlreadyExists:
-		return EEOSKitResult::AlreadyExists;
-	case EOS_EResult::EOS_TimedOut:
-		return EEOSKitResult::TimedOut;
-	case EOS_EResult::EOS_Cancelled:
-		return EEOSKitResult::Cancelled;
-	case EOS_EResult::EOS_NoConnection:
-		return EEOSKitResult::NoConnection;
-	case EOS_EResult::EOS_LimitExceeded:
-		return EEOSKitResult::LimitExceeded;
-	case EOS_EResult::EOS_Sessions_PlayerSanctioned:
-		return EEOSKitResult::PlayerSanctioned;
-	default:
-		return EEOSKitResult::Other;
-	}
-}
+#if WITH_EOS_SDK
+EEOSKitResult ConvertEOSResult(EOS_EResult Result);
+#else
+EEOSKitResult ConvertEOSResult(int32 Result);
+#endif
 
 // ========================================
 // Handle Wrappers (for Blueprint compatibility)

@@ -7,6 +7,12 @@
 #include "EOSKitFriendsTypes.h"
 #include "EOSGetFriendListAsync.generated.h"
 
+#if WITH_EOS_SDK
+#include "Windows/AllowWindowsPlatformTypes.h"
+#include "eos_friends_types.h"
+#include "Windows/HideWindowsPlatformTypes.h"
+#endif
+
 /**
  * Delegate for friend list query completion
  */

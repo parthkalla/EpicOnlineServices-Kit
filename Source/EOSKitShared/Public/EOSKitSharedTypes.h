@@ -11,7 +11,6 @@
 // Must come before .generated.h
 #if WITH_EOS_SDK
 #include "Windows/AllowWindowsPlatformTypes.h"
-#include "Windows/PreWindowsApi.h"
 
 #if defined(EOS_PLATFORM_BASE_FILE_NAME)
 #include EOS_PLATFORM_BASE_FILE_NAME
@@ -24,7 +23,6 @@
 #include "eos_userinfo_types.h"
 #include "eos_ui_types.h"
 
-#include "Windows/PostWindowsApi.h"
 #include "Windows/HideWindowsPlatformTypes.h"
 #endif
 
@@ -250,7 +248,7 @@ public:
 		}
 	}
 
-	EOS_ProductUserId GetValueAsEosType()
+	EOS_ProductUserId GetValueAsEosType() const
 	{
 		if (EOS_ProductUserId_IsValid(ProductUserIdBasic))
 		{
@@ -326,7 +324,7 @@ public:
 		}
 	}
 
-	EOS_EpicAccountId GetValueAsEosType()
+	EOS_EpicAccountId GetValueAsEosType() const
 	{
 		if (EOS_EpicAccountId_IsValid(Ref))
 		{
@@ -398,7 +396,7 @@ public:
 		}
 	}
 
-	EOS_LobbyId GetValueAsEosType()
+	EOS_LobbyId GetValueAsEosType() const
 	{
 		return Ref;
 	}
@@ -443,7 +441,7 @@ struct EOSKITSHARED_API FEOSKitNotificationId
 	{
 	}
 
-	EOS_NotificationId GetValueAsEosType()
+	EOS_NotificationId GetValueAsEosType() const
 	{
 		return NotificationId;
 	}
@@ -485,7 +483,7 @@ private:
 public:
 	FEOSKitUIEventId()
 #if WITH_EOS_SDK
-		: Ref(-1), Value(-1)
+		: Value(-1), Ref(-1)
 #else
 		: Value(-1)
 #endif
@@ -494,11 +492,11 @@ public:
 
 #if WITH_EOS_SDK
 	FEOSKitUIEventId(EOS_UI_EventId InEventId)
-		: Ref(InEventId), Value(InEventId)
+		: Value(InEventId), Ref(InEventId)
 	{
 	}
 
-	EOS_UI_EventId GetValueAsEosType()
+	EOS_UI_EventId GetValueAsEosType() const
 	{
 		return Ref;
 	}
@@ -552,7 +550,7 @@ public:
 		ContinuanceTokenBasic = InContinuanceToken;
 	}
 
-	EOS_ContinuanceToken GetValueAsEosType()
+	EOS_ContinuanceToken GetValueAsEosType() const
 	{
 		return ContinuanceTokenBasic;
 	}

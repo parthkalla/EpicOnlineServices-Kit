@@ -5,15 +5,13 @@
 #include "Kismet/GameplayStatics.h"
 #if WITH_EOS_SDK
 #include "Windows/AllowWindowsPlatformTypes.h"
-#include "Windows/PreWindowsApi.h"
-#include "eos_platform.h"
+#include "eos_sdk.h"
 #include "eos_sessions.h"
-#include "Windows/PostWindowsApi.h"
 #include "Windows/HideWindowsPlatformTypes.h"
 #endif
 #include "Async/Async.h"
 
-UEOS_Sessions_DestroySession* UEOS_Sessions_DestroySession::EOS_Sessions_DestroySession(const FString& SessionName)
+UEOS_Sessions_DestroySession* UEOS_Sessions_DestroySession::EOK_Sessions_DestroySession(const FString& SessionName)
 {
 	UEOS_Sessions_DestroySession* Node = NewObject<UEOS_Sessions_DestroySession>();
 	Node->Var_SessionName = SessionName;
@@ -85,7 +83,7 @@ void UEOS_Sessions_DestroySession::Activate()
 	DestroySessionOptions.ApiVersion = EOS_SESSIONS_DESTROYSESSION_API_LATEST;
 	DestroySessionOptions.SessionName = TCHAR_TO_ANSI(*Var_SessionName);
 
-	EOS_Sessions_DestroySession(SessionsHandle, &DestroySessionOptions, this, &UEOS_Sessions_DestroySession::OnDestroySessionCallback);
+	::EOS_Sessions_DestroySession(SessionsHandle, &DestroySessionOptions, this, &UEOS_Sessions_DestroySession::OnDestroySessionCallback);
 }
 
 void UEOS_Sessions_DestroySession::OnDestroySessionCallback(const EOS_Sessions_DestroySessionCallbackInfo* Data)

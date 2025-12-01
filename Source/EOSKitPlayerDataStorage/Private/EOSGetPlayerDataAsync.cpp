@@ -6,11 +6,9 @@
 #include "Kismet/GameplayStatics.h"
 #if WITH_EOS_SDK
 #include "Windows/AllowWindowsPlatformTypes.h"
-#include "Windows/PreWindowsApi.h"
-#include "eos_platform.h"
+#include "eos_sdk.h"
 #include "eos_playerdatastorage.h"
 #include "eos_playerdatastorage_types.h"
-#include "Windows/PostWindowsApi.h"
 #include "Windows/HideWindowsPlatformTypes.h"
 #endif
 
@@ -111,7 +109,7 @@ EOS_PlayerDataStorage_EReadResult EOS_CALL UEOSGetPlayerDataAsync::OnReadFileDat
 	if (Data->DataChunk && Data->DataChunkLengthBytes > 0)
 	{
 		int32 CurrentSize = Self->ReadData.Num();
-		Self->ReadData.SetNum(CurrentSize + Data->DataChunkLengthBytes, false);
+		Self->ReadData.SetNum(CurrentSize + Data->DataChunkLengthBytes, EAllowShrinking::No);
 		FMemory::Memcpy(Self->ReadData.GetData() + CurrentSize, Data->DataChunk, Data->DataChunkLengthBytes);
 	}
 

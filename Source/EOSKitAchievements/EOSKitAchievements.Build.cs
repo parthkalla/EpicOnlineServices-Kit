@@ -1,5 +1,3 @@
-// Copyright (C) 2024, All Rights Reserved.
-
 using UnrealBuildTool;
 
 public class EOSKitAchievements : ModuleRules
@@ -17,10 +15,9 @@ public class EOSKitAchievements : ModuleRules
 				"OnlineSubsystem",
 				"OnlineSubsystemUtils",
 				"EOSSDK",
-				"EOSShared",
-				"EOSKit",
+				"EOSKitShared",
 				"EOSKitAuth",
-				"EOSKitShared"
+				"EOSKit"
 			}
 		);
 			

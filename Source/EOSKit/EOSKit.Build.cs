@@ -29,18 +29,39 @@ public class EOSKit : ModuleRules
 				"OnlineSubsystemUtils",
 				"Projects",
 				"DeveloperSettings",
-				"EOSShared",
 				"EOSKitShared",
 				"Sockets",
-				"EOSKitAuth",
-				"EOSKitLobbies",
-				"EOSKitSessions"
+				"Json",
+				"EOSSDK"
 			}
 		);
 
-		PublicDependencyModuleNames.Add("EOSSDK");
+		// Feature modules as private dependencies - EOSKit can use them but they don't depend on EOSKit
+		PrivateDependencyModuleNames.AddRange(
+			new string[]
+			{
+				"EOSKitAuth",
+				"EOSKitLobbies",
+				"EOSKitSessions",
+				"EOSKitFriends",
+				"EOSKitPresence",
+				"EOSKitStats",
+				"EOSKitLeaderboards",
+				"EOSKitAchievements",
+				"EOSKitUserInfo",
+				"EOSKitUi",
+				"EOSKitTitleStorage",
+				"EOSKitPlayerDataStorage",
+				"EOSKitEcom",
+				"EOSKitP2P",
+				"EOSKitRTC",
+				"EOSKitSanctions",
+				"EOSKitWeb",
+				"EOSKitSockets",
+				"EOSKitVoice"
+			}
+		);
 		
-		// Add UnrealEd module for editor builds (needed for FUnrealEdMisc)
 		if (Target.bBuildEditor)
 		{
 			PrivateDependencyModuleNames.Add("UnrealEd");

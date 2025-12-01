@@ -43,7 +43,7 @@ public:
 private:
 	virtual void Activate() override;
 
-	void OnLoginComplete(int32 LocalUserNum, bool bWasSuccessful, const FUniqueNetId& UniqueNetId, const FString& Error);
+	void OnLoginComplete(int32 LocalUserNum1, bool bWasSuccessful, const FUniqueNetId& UniqueNetId, const FString& Error);
 
 	UPROPERTY()
 	UObject* WorldContextObject;

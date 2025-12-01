@@ -1,5 +1,3 @@
-// Copyright (C) 2024, All Rights Reserved.
-
 using UnrealBuildTool;
 using System.IO;
 
@@ -25,7 +23,8 @@ public class EOSKitVoice : ModuleRules
 				"SignalProcessing",
 				"EOSSDK",
 				"EOSKitShared",
-				"VoiceChat" // Add VoiceChat module for IVoiceChat interface
+				"VoiceChat",
+				"EOSKit"
 			}
 		);
 			
@@ -33,14 +32,12 @@ public class EOSKitVoice : ModuleRules
 			new string[]
 			{
 				"Projects",
-				"EOSKit",
 				"Sockets",
 				"Json",
 				"JsonUtilities"
 			}
 		);
 		
-		// Add conditional compilation for voice chat
 		PublicDefinitions.Add("WITH_EOS_RTC=1");
 	}
 }

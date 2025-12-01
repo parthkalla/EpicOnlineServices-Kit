@@ -1,5 +1,3 @@
-// Copyright (C) 2024, All Rights Reserved.
-
 using UnrealBuildTool;
 
 public class EOSKitWeb : ModuleRules
@@ -18,9 +16,8 @@ public class EOSKitWeb : ModuleRules
 				"Json",
 				"JsonUtilities",
 				"EOSSDK",
-				"EOSShared",
-				"EOSKit",
-				"EOSKitShared"
+				"EOSKitShared",
+				"EOSKit"
 			}
 		);
 			

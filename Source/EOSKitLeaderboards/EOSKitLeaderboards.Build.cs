@@ -1,5 +1,3 @@
-// Copyright (C) 2024, All Rights Reserved.
-
 using UnrealBuildTool;
 
 public class EOSKitLeaderboards : ModuleRules
@@ -16,11 +14,9 @@ public class EOSKitLeaderboards : ModuleRules
 			"OnlineSubsystem",
 			"OnlineSubsystemUtils",
 			"EOSSDK",
-			"EOSShared",
-			"EOSKit",
+			"EOSKitShared",
 			"EOSKitAuth",
-			"EOSKitShared"
+			"EOSKit"
 		});
 	}
 }
-

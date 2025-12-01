@@ -18,7 +18,7 @@ class EOSKITSESSIONS_API UEOS_Sessions_RegisterPlayers : public UBlueprintAsyncA
 public:
 	// Register a group of players with the session
 	UFUNCTION(BlueprintCallable, Category = "EOSKit | SDK Functions | Sessions Interface", DisplayName = "EOS_Sessions_RegisterPlayers", meta = (BlueprintInternalUseOnly = "true"))
-	static UEOS_Sessions_RegisterPlayers* EOS_Sessions_RegisterPlayers(const FString& SessionName, const TArray<FEOSKitProductUserId>& PlayersToRegister);
+	static UEOS_Sessions_RegisterPlayers* EOK_Sessions_RegisterPlayers(const FString& SessionName, const TArray<FEOSKitProductUserId>& PlayersToRegister);
 
 	UPROPERTY(BlueprintAssignable, Category = "EOSKit | SDK Functions | Sessions Interface")
 	FEOSKit_OnRegisterPlayersCallback OnCallback;

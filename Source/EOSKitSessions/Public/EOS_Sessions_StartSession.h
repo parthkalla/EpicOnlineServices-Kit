@@ -18,7 +18,7 @@ class EOSKITSESSIONS_API UEOS_Sessions_StartSession : public UBlueprintAsyncActi
 public:
 	// Mark a session as started
 	UFUNCTION(BlueprintCallable, Category = "EOSKit | SDK Functions | Sessions Interface", DisplayName = "EOS_Sessions_StartSession", meta = (BlueprintInternalUseOnly = "true"))
-	static UEOS_Sessions_StartSession* EOS_Sessions_StartSession(const FString& SessionName);
+	static UEOS_Sessions_StartSession* EOK_Sessions_StartSession(const FString& SessionName);
 
 	UPROPERTY(BlueprintAssignable, Category = "EOSKit | SDK Functions | Sessions Interface")
 	FEOSKit_OnStartSessionCallback OnCallback;

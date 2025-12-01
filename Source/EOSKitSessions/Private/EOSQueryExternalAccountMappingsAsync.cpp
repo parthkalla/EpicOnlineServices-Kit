@@ -5,18 +5,16 @@
 #include "Kismet/GameplayStatics.h"
 #if WITH_EOS_SDK
 #include "Windows/AllowWindowsPlatformTypes.h"
-#include "Windows/PreWindowsApi.h"
-#include "eos_platform.h"
+#include "eos_sdk.h"
 #include "eos_connect.h"
 #include "eos_connect_types.h"
-#include "Windows/PostWindowsApi.h"
 #include "Windows/HideWindowsPlatformTypes.h"
 #endif
 #include "Async/Async.h"
 
 UEOSQueryExternalAccountMappingsAsync* UEOSQueryExternalAccountMappingsAsync::QueryExternalAccountMappings(
 	FString ProductUserId,
-	TEnumAsByte<EEOSKitExternalAccountType> AccountType,
+	EEOSKitExternalAccountType AccountType,
 	const TArray<FString>& ExternalAccountIds)
 {
 	UEOSQueryExternalAccountMappingsAsync* Node = NewObject<UEOSQueryExternalAccountMappingsAsync>();
@@ -37,7 +35,7 @@ void UEOSQueryExternalAccountMappingsAsync::QueryMappings()
 	UE_LOG(LogTemp, Warning, TEXT("EOSKit: ========================================"));
 	UE_LOG(LogTemp, Warning, TEXT("EOSKit: Querying External Account Mappings"));
 	UE_LOG(LogTemp, Warning, TEXT("EOSKit: Product User ID: %s"), *VarProductUserId);
-	UE_LOG(LogTemp, Warning, TEXT("EOSKit: Account Type: %d"), VarAccountType.GetValue());
+		UE_LOG(LogTemp, Warning, TEXT("EOSKit: Account Type: %d"), static_cast<int32>(VarAccountType));
 	UE_LOG(LogTemp, Warning, TEXT("EOSKit: External Account Count: %d"), VarExternalAccountIds.Num());
 	UE_LOG(LogTemp, Warning, TEXT("EOSKit: ========================================"));
 	
@@ -112,7 +110,7 @@ void UEOSQueryExternalAccountMappingsAsync::QueryMappings()
 	EOS_Connect_QueryExternalAccountMappingsOptions QueryOptions = {};
 	QueryOptions.ApiVersion = EOS_CONNECT_QUERYEXTERNALACCOUNTMAPPINGS_API_LATEST;
 	QueryOptions.LocalUserId = LocalUserId;
-	QueryOptions.AccountIdType = static_cast<EOS_EExternalAccountType>(VarAccountType.GetValue());
+		QueryOptions.AccountIdType = static_cast<EOS_EExternalAccountType>(VarAccountType);
 	QueryOptions.ExternalAccountIds = ExternalAccountIdsArray;
 	QueryOptions.ExternalAccountIdCount = VarExternalAccountIds.Num();
 	

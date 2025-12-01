@@ -14,9 +14,9 @@ public class EOSKitFriends : ModuleRules
 			"OnlineSubsystem",
 			"OnlineSubsystemUtils",
 			"EOSSDK",
-			"EOSShared",
-			"EOSKit",
-			"EOSKitShared"
+			"EOSKitShared",
+			"EOSKitSessions",
+			"EOSKit"
 		});
 		
 		PrivateDependencyModuleNames.AddRange(new string[]
@@ -26,4 +26,3 @@ public class EOSKitFriends : ModuleRules
 		});
 	}
 }
-

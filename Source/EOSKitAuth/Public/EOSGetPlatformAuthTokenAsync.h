@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Kismet/BlueprintAsyncActionBase.h"
 #include "Interfaces/OnlineIdentityInterface.h"
+#include "OnlineSubsystem.h"
 #include "EOSGetPlatformAuthTokenAsync.generated.h"
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnGetPlatformAuthTokenComplete, const FString&, AuthToken);
@@ -51,5 +52,9 @@ private:
 
 	int32 LocalUserNum;
 	FString TokenType;
+
+	// Store platform identity for cleanup
+	IOnlineIdentityPtr StoredPlatformIdentity;
+	int32 StoredLocalUserNum;
 };
 

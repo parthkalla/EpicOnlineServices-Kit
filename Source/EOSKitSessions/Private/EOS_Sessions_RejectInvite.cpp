@@ -5,15 +5,13 @@
 #include "Kismet/GameplayStatics.h"
 #if WITH_EOS_SDK
 #include "Windows/AllowWindowsPlatformTypes.h"
-#include "Windows/PreWindowsApi.h"
-#include "eos_platform.h"
+#include "eos_sdk.h"
 #include "eos_sessions.h"
-#include "Windows/PostWindowsApi.h"
 #include "Windows/HideWindowsPlatformTypes.h"
 #endif
 #include "Async/Async.h"
 
-UEOS_Sessions_RejectInvite* UEOS_Sessions_RejectInvite::EOS_Sessions_RejectInvite(const FString& InviteId, const FEOSKitProductUserId& LocalUserId)
+UEOS_Sessions_RejectInvite* UEOS_Sessions_RejectInvite::EOK_Sessions_RejectInvite(const FString& InviteId, const FEOSKitProductUserId& LocalUserId)
 {
 	UEOS_Sessions_RejectInvite* Node = NewObject<UEOS_Sessions_RejectInvite>();
 	Node->Var_InviteId = InviteId;
@@ -101,7 +99,7 @@ void UEOS_Sessions_RejectInvite::Activate()
 	RejectInviteOptions.InviteId = TCHAR_TO_ANSI(*Var_InviteId);
 	RejectInviteOptions.LocalUserId = LocalUserIdEOS;
 
-	EOS_Sessions_RejectInvite(SessionsHandle, &RejectInviteOptions, this, &UEOS_Sessions_RejectInvite::OnRejectInviteCallback);
+	::EOS_Sessions_RejectInvite(SessionsHandle, &RejectInviteOptions, this, &UEOS_Sessions_RejectInvite::OnRejectInviteCallback);
 }
 
 void UEOS_Sessions_RejectInvite::OnRejectInviteCallback(const EOS_Sessions_RejectInviteCallbackInfo* Data)

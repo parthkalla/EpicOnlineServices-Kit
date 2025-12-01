@@ -7,6 +7,12 @@
 #include "EOSKitSharedTypes.h"
 #include "EOSInviteFriendAsync.generated.h"
 
+#if WITH_EOS_SDK
+#include "Windows/AllowWindowsPlatformTypes.h"
+#include "eos_friends_types.h"
+#include "Windows/HideWindowsPlatformTypes.h"
+#endif
+
 /**
  * Delegate for friend invite completion
  */

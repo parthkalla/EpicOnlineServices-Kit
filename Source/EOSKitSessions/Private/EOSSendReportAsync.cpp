@@ -4,11 +4,9 @@
 #include "EOSKitSubsystem.h"
 #if WITH_EOS_SDK
 #include "Windows/AllowWindowsPlatformTypes.h"
-#include "Windows/PreWindowsApi.h"
-#include "eos_platform.h"
+#include "eos_sdk.h"
 #include "eos_reports.h"
 #include "eos_reports_types.h"
-#include "Windows/PostWindowsApi.h"
 #include "Windows/HideWindowsPlatformTypes.h"
 #endif
 #include "EOSKitSharedTypes.h"
@@ -33,8 +31,6 @@ UEOSSendReportAsync* UEOSSendReportAsync::SendReport(
 
 void UEOSSendReportAsync::Activate()
 {
-	Super::Activate();
-
 	if (!WorldContextObject)
 	{
 		UE_LOG(LogTemp, Error, TEXT("EOSSendReportAsync: WorldContextObject is null"));
@@ -43,7 +39,16 @@ void UEOSSendReportAsync::Activate()
 		return;
 	}
 
-	UGameInstance* GameInstance = WorldContextObject->GetWorld()->GetGameInstance();
+	UWorld* World = GEngine->GetWorldFromContextObjectChecked(WorldContextObject);
+	if (!World)
+	{
+		UE_LOG(LogTemp, Error, TEXT("EOSSendReportAsync: World is null"));
+		OnComplete.Broadcast(EEOSResult::EOS_InvalidParameters);
+		SetReadyToDestroy();
+		return;
+	}
+
+	UGameInstance* GameInstance = World->GetGameInstance();
 	if (!GameInstance)
 	{
 		UE_LOG(LogTemp, Error, TEXT("EOSSendReportAsync: GameInstance is null"));
@@ -61,6 +66,7 @@ void UEOSSendReportAsync::Activate()
 		return;
 	}
 
+#if WITH_EOS_SDK
 	EOS_HReports ReportsHandle = EOS_Platform_GetReportsInterface(EOSKitSubsystem->GetPlatformHandle());
 	if (!ReportsHandle)
 	{
@@ -100,14 +106,18 @@ void UEOSSendReportAsync::Activate()
 		ReportsHandle,
 		&ReportOptions,
 		this,
-		&UEOSSendReportAsync::OnSendReportCompleteCallback
+		(EOS_Reports_OnSendPlayerBehaviorReportCompleteCallback)&UEOSSendReportAsync::OnSendReportCompleteCallback
 	);
+#else
+	OnComplete.Broadcast(EEOSResult::EOS_NotConfigured);
+	SetReadyToDestroy();
+#endif
 }
 
+#if WITH_EOS_SDK
 void EOS_CALL UEOSSendReportAsync::OnSendReportCompleteCallback(const void* Data)
 {
-	const EOS_Reports_SendPlayerBehaviorReportCompleteCallbackInfo* CallbackInfo = 
-		static_cast<const EOS_Reports_SendPlayerBehaviorReportCompleteCallbackInfo*>(Data);
+	const EOS_Reports_SendPlayerBehaviorReportCompleteCallbackInfo* CallbackInfo = reinterpret_cast<const EOS_Reports_SendPlayerBehaviorReportCompleteCallbackInfo*>(Data);
 
 	if (!CallbackInfo || !CallbackInfo->ClientData)
 	{
@@ -129,4 +139,5 @@ void EOS_CALL UEOSSendReportAsync::OnSendReportCompleteCallback(const void* Data
 	Self->OnComplete.Broadcast(Result);
 	Self->SetReadyToDestroy();
 }
+#endif
 

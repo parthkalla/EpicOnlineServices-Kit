@@ -14,10 +14,9 @@ public class EOSKitStats : ModuleRules
 			"OnlineSubsystem",
 			"OnlineSubsystemUtils",
 			"EOSSDK",
-			"EOSShared",
-			"EOSKit",
+			"EOSKitShared",
 			"EOSKitAuth",
-			"EOSKitShared"
+			"EOSKit"
 		});
 		
 		PrivateDependencyModuleNames.AddRange(new string[]

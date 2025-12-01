@@ -5,15 +5,13 @@
 #include "Kismet/GameplayStatics.h"
 #if WITH_EOS_SDK
 #include "Windows/AllowWindowsPlatformTypes.h"
-#include "Windows/PreWindowsApi.h"
-#include "eos_platform.h"
+#include "eos_sdk.h"
 #include "eos_sessions.h"
-#include "Windows/PostWindowsApi.h"
 #include "Windows/HideWindowsPlatformTypes.h"
 #endif
 #include "Async/Async.h"
 
-UEOS_Sessions_StartSession* UEOS_Sessions_StartSession::EOS_Sessions_StartSession(const FString& SessionName)
+UEOS_Sessions_StartSession* UEOS_Sessions_StartSession::EOK_Sessions_StartSession(const FString& SessionName)
 {
 	UEOS_Sessions_StartSession* Node = NewObject<UEOS_Sessions_StartSession>();
 	Node->Var_SessionName = SessionName;
@@ -85,7 +83,7 @@ void UEOS_Sessions_StartSession::Activate()
 	StartSessionOptions.ApiVersion = EOS_SESSIONS_STARTSESSION_API_LATEST;
 	StartSessionOptions.SessionName = TCHAR_TO_ANSI(*Var_SessionName);
 
-	EOS_Sessions_StartSession(SessionsHandle, &StartSessionOptions, this, &UEOS_Sessions_StartSession::OnStartSessionCallback);
+	::EOS_Sessions_StartSession(SessionsHandle, &StartSessionOptions, this, &UEOS_Sessions_StartSession::OnStartSessionCallback);
 }
 
 void UEOS_Sessions_StartSession::OnStartSessionCallback(const EOS_Sessions_StartSessionCallbackInfo* Data)

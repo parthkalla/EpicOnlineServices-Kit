@@ -5,11 +5,9 @@
 #include "Kismet/GameplayStatics.h"
 #if WITH_EOS_SDK
 #include "Windows/AllowWindowsPlatformTypes.h"
-#include "Windows/PreWindowsApi.h"
-#include "eos_platform.h"
+#include "eos_sdk.h"
 #include "eos_p2p.h"
 #include "eos_p2p_types.h"
-#include "Windows/PostWindowsApi.h"
 #include "Windows/HideWindowsPlatformTypes.h"
 #endif
 #include "EOSKitSharedTypes.h"
@@ -86,12 +84,17 @@ bool UEOSKitP2PSubsystem::GetNATType(EEOSKitNATType& OutNATType)
 	EOS_P2P_GetNATTypeOptions Options = {};
 	Options.ApiVersion = EOS_P2P_GETNATTYPE_API_LATEST;
 
-	EOS_ENATType NATType = EOS_P2P_GetNATType(P2PHandle, &Options);
-	OutNATType = static_cast<EEOSKitNATType>(NATType);
-	return true;
+	EOS_ENATType NATType = EOS_ENATType::EOS_NAT_Unknown;
+	EOS_EResult Result = EOS_P2P_GetNATType(P2PHandle, &Options, &NATType);
+	if (Result == EOS_EResult::EOS_Success)
+	{
+		OutNATType = static_cast<EEOSKitNATType>(NATType);
+		return true;
+	}
+	return false;
 }
 
-int32 UEOSKitP2PSubsystem::AddNotifyPeerConnectionRequest(const FEOSKitProductUserId& LocalUserId, const FEOSKitP2PSocketId& SocketId, FOnEOSPeerConnectionRequest Callback)
+int32 UEOSKitP2PSubsystem::AddNotifyPeerConnectionRequest(const FEOSKitProductUserId& LocalUserId, const FEOSKitP2PSocketId& SocketId, const FOnEOSPeerConnectionRequestDelegate& Callback)
 {
 	EOS_HP2P P2PHandle = GetP2PHandle();
 	if (!P2PHandle)
@@ -106,12 +109,13 @@ int32 UEOSKitP2PSubsystem::AddNotifyPeerConnectionRequest(const FEOSKitProductUs
 
 	EOS_P2P_SocketId SocketIdData = SocketId.GetAsEosData();
 	Options.SocketId = SocketId.SocketName.IsEmpty() ? nullptr : &SocketIdData;
-
-	EOS_NotificationId NotificationId = EOS_P2P_AddNotifyPeerConnectionRequest(
+	
+	// In SDK 1.18.1, ClientData and Callback are separate parameters, not in Options
+	EOS_NotificationId NotificationId = ::EOS_P2P_AddNotifyPeerConnectionRequest(
 		P2PHandle,
 		&Options,
-		this,
-		&UEOSKitP2PSubsystem::OnPeerConnectionRequestCallback);
+		this,  // ClientData
+		&UEOSKitP2PSubsystem::OnPeerConnectionRequestCallback);  // Callback
 
 	if (NotificationId != EOS_INVALID_NOTIFICATIONID)
 	{
@@ -378,9 +382,14 @@ bool UEOSKitP2PSubsystem::GetRelayControl(int32& OutRelayControl)
 	EOS_P2P_GetRelayControlOptions Options = {};
 	Options.ApiVersion = EOS_P2P_GETRELAYCONTROL_API_LATEST;
 
-	EOS_ERelayControl RelayControl = EOS_P2P_GetRelayControl(P2PHandle, &Options);
-	OutRelayControl = static_cast<int32>(RelayControl);
-	return true;
+	EOS_ERelayControl RelayControl = EOS_ERelayControl::EOS_RC_NoRelays;
+	EOS_EResult Result = EOS_P2P_GetRelayControl(P2PHandle, &Options, &RelayControl);
+	if (Result == EOS_EResult::EOS_Success)
+	{
+		OutRelayControl = static_cast<int32>(RelayControl);
+		return true;
+	}
+	return false;
 }
 
 void EOS_CALL UEOSKitP2PSubsystem::OnPeerConnectionRequestCallback(const EOS_P2P_OnIncomingConnectionRequestInfo* Data)
@@ -404,12 +413,14 @@ void EOS_CALL UEOSKitP2PSubsystem::OnPeerConnectionRequestCallback(const EOS_P2P
 	}
 
 	// Find and call the stored callback delegate
-	EOS_NotificationId EOSNotificationId = Data->NotificationId;
-	if (FOnEOSPeerConnectionRequestDelegate* Callback = Self->PeerConnectionRequestCallbacks.Find(EOSNotificationId))
+	// Note: EOS_P2P_OnIncomingConnectionRequestInfo does not have NotificationId
+	// We need to call all registered callbacks since we can't identify which specific one to call
+	for (auto& Pair : Self->PeerConnectionRequestCallbacks)
 	{
-		AsyncTask(ENamedThreads::GameThread, [Callback, RemoteUserId, SocketId, LocalUserId]()
+		FOnEOSPeerConnectionRequestDelegate CallbackCopy = Pair.Value;
+		AsyncTask(ENamedThreads::GameThread, [CallbackCopy, RemoteUserId, SocketId, LocalUserId]()
 		{
-			Callback->ExecuteIfBound(RemoteUserId, SocketId, LocalUserId);
+			CallbackCopy.ExecuteIfBound(RemoteUserId, SocketId, LocalUserId);
 		});
 	}
 

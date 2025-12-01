@@ -6,11 +6,9 @@
 #include "Kismet/GameplayStatics.h"
 #if WITH_EOS_SDK
 #include "Windows/AllowWindowsPlatformTypes.h"
-#include "Windows/PreWindowsApi.h"
-#include "eos_platform.h"
+#include "eos_sdk.h"
 #include "eos_connect.h"
 #include "eos_connect_types.h"
-#include "Windows/PostWindowsApi.h"
 #include "Windows/HideWindowsPlatformTypes.h"
 #endif
 
@@ -82,12 +80,13 @@ void UEOSGetPUIDFromEpicIdAsync::Activate()
 	}
 
 	TArray<const char*> ExternalAccountIdsArr;
-	TArray<FTCHARToUTF8> Converters;
+	ExternalAccountIdsArr.Reserve(TargetEpicAccountIdStrings.Num());
+	TArray<FTCHARToUTF8, TInlineAllocator<32>> Converters;
 	Converters.Reserve(TargetEpicAccountIdStrings.Num());
 	
 	for (const FString& EpicAccountId : TargetEpicAccountIdStrings)
 	{
-		Converters.Add(FTCHARToUTF8(*EpicAccountId));
+		Converters.Emplace(*EpicAccountId);
 		ExternalAccountIdsArr.Add(Converters.Last().Get());
 	}
 
@@ -130,7 +129,7 @@ void EOS_CALL UEOSGetPUIDFromEpicIdAsync::OnQueryExternalAccountMappingsComplete
 
 					for (const FString& EpicAccountId : Self->TargetEpicAccountIdStrings)
 					{
-						EOS_Connect_GetExternalAccountMappingOptions GetOptions = {};
+						EOS_Connect_GetExternalAccountMappingsOptions GetOptions = {};
 						GetOptions.ApiVersion = EOS_CONNECT_GETEXTERNALACCOUNTMAPPING_API_LATEST;
 						GetOptions.AccountIdType = EOS_EExternalAccountType::EOS_EAT_EPIC;
 						GetOptions.LocalUserId = LocalUserId;

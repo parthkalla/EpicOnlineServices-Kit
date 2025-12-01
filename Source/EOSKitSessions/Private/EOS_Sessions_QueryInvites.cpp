@@ -5,15 +5,13 @@
 #include "Kismet/GameplayStatics.h"
 #if WITH_EOS_SDK
 #include "Windows/AllowWindowsPlatformTypes.h"
-#include "Windows/PreWindowsApi.h"
-#include "eos_platform.h"
+#include "eos_sdk.h"
 #include "eos_sessions.h"
-#include "Windows/PostWindowsApi.h"
 #include "Windows/HideWindowsPlatformTypes.h"
 #endif
 #include "Async/Async.h"
 
-UEOS_Sessions_QueryInvites* UEOS_Sessions_QueryInvites::EOS_Sessions_QueryInvites(const FEOSKitProductUserId& LocalUserId)
+UEOS_Sessions_QueryInvites* UEOS_Sessions_QueryInvites::EOK_Sessions_QueryInvites(const FEOSKitProductUserId& LocalUserId)
 {
 	UEOS_Sessions_QueryInvites* Node = NewObject<UEOS_Sessions_QueryInvites>();
 	Node->Var_LocalUserId = LocalUserId;
@@ -99,7 +97,7 @@ void UEOS_Sessions_QueryInvites::Activate()
 	QueryInvitesOptions.ApiVersion = EOS_SESSIONS_QUERYINVITES_API_LATEST;
 	QueryInvitesOptions.LocalUserId = LocalUserIdEOS;
 
-	EOS_Sessions_QueryInvites(SessionsHandle, &QueryInvitesOptions, this, &UEOS_Sessions_QueryInvites::OnQueryInvitesCallback);
+	::EOS_Sessions_QueryInvites(SessionsHandle, &QueryInvitesOptions, this, &UEOS_Sessions_QueryInvites::OnQueryInvitesCallback);
 }
 
 void UEOS_Sessions_QueryInvites::OnQueryInvitesCallback(const EOS_Sessions_QueryInvitesCallbackInfo* Data)

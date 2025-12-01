@@ -5,15 +5,13 @@
 #include "Kismet/GameplayStatics.h"
 #if WITH_EOS_SDK
 #include "Windows/AllowWindowsPlatformTypes.h"
-#include "Windows/PreWindowsApi.h"
-#include "eos_platform.h"
+#include "eos_sdk.h"
 #include "eos_sessions.h"
-#include "Windows/PostWindowsApi.h"
 #include "Windows/HideWindowsPlatformTypes.h"
 #endif
 #include "Async/Async.h"
 
-UEOS_Sessions_JoinSession* UEOS_Sessions_JoinSession::EOS_Sessions_JoinSession(const FString& SessionName, const FEOSKitProductUserId& LocalUserId, const FEOSKitHSessionDetails& SessionHandle, bool bPresenceEnabled)
+UEOS_Sessions_JoinSession* UEOS_Sessions_JoinSession::EOK_Sessions_JoinSession(const FString& SessionName, const FEOSKitProductUserId& LocalUserId, const FEOSKitHSessionDetails& SessionHandle, bool bPresenceEnabled)
 {
 	UEOS_Sessions_JoinSession* Node = NewObject<UEOS_Sessions_JoinSession>();
 	Node->Var_SessionName = SessionName;
@@ -117,9 +115,9 @@ void UEOS_Sessions_JoinSession::Activate()
 	JoinSessionOptions.SessionName = TCHAR_TO_ANSI(*Var_SessionName);
 	JoinSessionOptions.LocalUserId = LocalUserIdEOS;
 	JoinSessionOptions.SessionHandle = SessionDetailsHandle;
-	JoinSessionOptions.bPresenceEnabled = bPresenceEnabled ? EOS_TRUE : EOS_FALSE;
+	JoinSessionOptions.bPresenceEnabled = Var_bPresenceEnabled ? EOS_TRUE : EOS_FALSE;
 
-	EOS_Sessions_JoinSession(SessionsHandle, &JoinSessionOptions, this, &UEOS_Sessions_JoinSession::OnJoinSessionCallback);
+	::EOS_Sessions_JoinSession(SessionsHandle, &JoinSessionOptions, this, &UEOS_Sessions_JoinSession::OnJoinSessionCallback);
 }
 
 void UEOS_Sessions_JoinSession::OnJoinSessionCallback(const EOS_Sessions_JoinSessionCallbackInfo* Data)

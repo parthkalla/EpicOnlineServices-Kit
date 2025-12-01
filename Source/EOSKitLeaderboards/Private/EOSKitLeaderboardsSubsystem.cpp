@@ -5,11 +5,9 @@
 #include "Kismet/GameplayStatics.h"
 #if WITH_EOS_SDK
 #include "Windows/AllowWindowsPlatformTypes.h"
-#include "Windows/PreWindowsApi.h"
-#include "eos_platform.h"
+#include "eos_sdk.h"
 #include "eos_leaderboards.h"
 #include "eos_leaderboards_types.h"
-#include "Windows/PostWindowsApi.h"
 #include "Windows/HideWindowsPlatformTypes.h"
 #endif
 #include "EOSKitSharedTypes.h"
@@ -423,18 +421,15 @@ EEOSResult UEOSKitLeaderboardsSubsystem::CopyLeaderboardUserScoreByUserId(
 	return ConvertEOSResultToEEOSResult(Result);
 }
 
-void EOS_CALL UEOSKitLeaderboardsSubsystem::OnQueryLeaderboardDefinitionsCompleteCallback(const void* Data)
+void EOS_CALL UEOSKitLeaderboardsSubsystem::OnQueryLeaderboardDefinitionsCompleteCallback(const EOS_Leaderboards_OnQueryLeaderboardDefinitionsCompleteCallbackInfo* Data)
 {
-	const EOS_Leaderboards_OnQueryLeaderboardDefinitionsCompleteCallbackInfo* CallbackInfo =
-		static_cast<const EOS_Leaderboards_OnQueryLeaderboardDefinitionsCompleteCallbackInfo*>(Data);
-
-	if (!CallbackInfo || !CallbackInfo->ClientData)
+	if (!Data || !Data->ClientData)
 	{
 		return;
 	}
 
-	UEOSKitLeaderboardsSubsystem* Subsystem = static_cast<UEOSKitLeaderboardsSubsystem*>(CallbackInfo->ClientData);
-	EEOSResult Result = ConvertEOSResultToEEOSResult(CallbackInfo->ResultCode);
+	UEOSKitLeaderboardsSubsystem* Subsystem = static_cast<UEOSKitLeaderboardsSubsystem*>(Data->ClientData);
+	EEOSResult Result = ConvertEOSResultToEEOSResult(Data->ResultCode);
 
 	AsyncTask(ENamedThreads::GameThread, [Subsystem, Result]()
 	{
@@ -445,19 +440,16 @@ void EOS_CALL UEOSKitLeaderboardsSubsystem::OnQueryLeaderboardDefinitionsComplet
 	});
 }
 
-void EOS_CALL UEOSKitLeaderboardsSubsystem::OnQueryLeaderboardRanksCompleteCallback(const void* Data)
+void EOS_CALL UEOSKitLeaderboardsSubsystem::OnQueryLeaderboardRanksCompleteCallback(const EOS_Leaderboards_OnQueryLeaderboardRanksCompleteCallbackInfo* Data)
 {
-	const EOS_Leaderboards_OnQueryLeaderboardRanksCompleteCallbackInfo* CallbackInfo =
-		static_cast<const EOS_Leaderboards_OnQueryLeaderboardRanksCompleteCallbackInfo*>(Data);
-
-	if (!CallbackInfo || !CallbackInfo->ClientData)
+	if (!Data || !Data->ClientData)
 	{
 		return;
 	}
 
-	UEOSKitLeaderboardsSubsystem* Subsystem = static_cast<UEOSKitLeaderboardsSubsystem*>(CallbackInfo->ClientData);
-	EEOSResult Result = ConvertEOSResultToEEOSResult(CallbackInfo->ResultCode);
-	FString LeaderboardId = UTF8_TO_TCHAR(CallbackInfo->LeaderboardId);
+	UEOSKitLeaderboardsSubsystem* Subsystem = static_cast<UEOSKitLeaderboardsSubsystem*>(Data->ClientData);
+	EEOSResult Result = ConvertEOSResultToEEOSResult(Data->ResultCode);
+	FString LeaderboardId = UTF8_TO_TCHAR(Data->LeaderboardId);
 
 	AsyncTask(ENamedThreads::GameThread, [Subsystem, Result, LeaderboardId]()
 	{
@@ -468,18 +460,15 @@ void EOS_CALL UEOSKitLeaderboardsSubsystem::OnQueryLeaderboardRanksCompleteCallb
 	});
 }
 
-void EOS_CALL UEOSKitLeaderboardsSubsystem::OnQueryLeaderboardUserScoresCompleteCallback(const void* Data)
+void EOS_CALL UEOSKitLeaderboardsSubsystem::OnQueryLeaderboardUserScoresCompleteCallback(const EOS_Leaderboards_OnQueryLeaderboardUserScoresCompleteCallbackInfo* Data)
 {
-	const EOS_Leaderboards_OnQueryLeaderboardUserScoresCompleteCallbackInfo* CallbackInfo =
-		static_cast<const EOS_Leaderboards_OnQueryLeaderboardUserScoresCompleteCallbackInfo*>(Data);
-
-	if (!CallbackInfo || !CallbackInfo->ClientData)
+	if (!Data || !Data->ClientData)
 	{
 		return;
 	}
 
-	UEOSKitLeaderboardsSubsystem* Subsystem = static_cast<UEOSKitLeaderboardsSubsystem*>(CallbackInfo->ClientData);
-	EEOSResult Result = ConvertEOSResultToEEOSResult(CallbackInfo->ResultCode);
+	UEOSKitLeaderboardsSubsystem* Subsystem = static_cast<UEOSKitLeaderboardsSubsystem*>(Data->ClientData);
+	EEOSResult Result = ConvertEOSResultToEEOSResult(Data->ResultCode);
 
 	AsyncTask(ENamedThreads::GameThread, [Subsystem, Result]()
 	{

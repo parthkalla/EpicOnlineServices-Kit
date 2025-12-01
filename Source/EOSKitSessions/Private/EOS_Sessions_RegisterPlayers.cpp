@@ -5,15 +5,13 @@
 #include "Kismet/GameplayStatics.h"
 #if WITH_EOS_SDK
 #include "Windows/AllowWindowsPlatformTypes.h"
-#include "Windows/PreWindowsApi.h"
-#include "eos_platform.h"
+#include "eos_sdk.h"
 #include "eos_sessions.h"
-#include "Windows/PostWindowsApi.h"
 #include "Windows/HideWindowsPlatformTypes.h"
 #endif
 #include "Async/Async.h"
 
-UEOS_Sessions_RegisterPlayers* UEOS_Sessions_RegisterPlayers::EOS_Sessions_RegisterPlayers(const FString& SessionName, const TArray<FEOSKitProductUserId>& PlayersToRegister)
+UEOS_Sessions_RegisterPlayers* UEOS_Sessions_RegisterPlayers::EOK_Sessions_RegisterPlayers(const FString& SessionName, const TArray<FEOSKitProductUserId>& PlayersToRegister)
 {
 	UEOS_Sessions_RegisterPlayers* Node = NewObject<UEOS_Sessions_RegisterPlayers>();
 	Node->Var_SessionName = SessionName;
@@ -106,7 +104,8 @@ void UEOS_Sessions_RegisterPlayers::Activate()
 		RegisterPlayersOptions.PlayersToRegister[i] = Var_PlayersToRegister[i].GetValueAsEosType();
 	}
 
-	EOS_Sessions_RegisterPlayers(SessionsHandle, &RegisterPlayersOptions, this, &UEOS_Sessions_RegisterPlayers::OnRegisterPlayersCallback);
+	::EOS_Sessions_RegisterPlayers(SessionsHandle, &RegisterPlayersOptions, this, &UEOS_Sessions_RegisterPlayers::OnRegisterPlayersCallback);
+	// Note: PlayersToRegister array is copied by EOS SDK, safe to delete here
 	delete[] RegisterPlayersOptions.PlayersToRegister;
 }
 

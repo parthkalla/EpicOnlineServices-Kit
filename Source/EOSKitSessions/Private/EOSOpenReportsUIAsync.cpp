@@ -4,11 +4,9 @@
 #include "EOSKitSubsystem.h"
 #if WITH_EOS_SDK
 #include "Windows/AllowWindowsPlatformTypes.h"
-#include "Windows/PreWindowsApi.h"
-#include "eos_platform.h"
+#include "eos_sdk.h"
 #include "eos_ui.h"
 #include "eos_ui_types.h"
-#include "Windows/PostWindowsApi.h"
 #include "Windows/HideWindowsPlatformTypes.h"
 #endif
 #include "EOSKitSharedTypes.h"
@@ -77,17 +75,15 @@ void UEOSOpenReportsUIAsync::Activate()
 	);
 }
 
-void EOS_CALL UEOSOpenReportsUIAsync::OnOpenReportsUICompleteCallback(const void* Data)
+void EOS_CALL UEOSOpenReportsUIAsync::OnOpenReportsUICompleteCallback(const EOS_UI_OnShowReportPlayerCallbackInfo* CallbackInfo)
 {
-	const EOS_UI_OnShowReportPlayerCallbackInfo* CallbackInfo = 
-		static_cast<const EOS_UI_OnShowReportPlayerCallbackInfo*>(Data);
 
 	if (!CallbackInfo || !CallbackInfo->ClientData)
 	{
 		return;
 	}
 
-	UEOSOpenReportsUIAsync* Self = static_cast<UEOSOpenReportsUIAsync*>(CallbackInfo->ClientData);
+	UEOSOpenReportsUIAsync* Self = static_cast<UEOSOpenReportsUIAsync*>(const_cast<void*>(CallbackInfo->ClientData));
 	EEOSResult Result = ConvertEOSResultToEEOSResult(CallbackInfo->ResultCode);
 
 	if (Result == EEOSResult::EOS_Success)

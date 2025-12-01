@@ -18,11 +18,8 @@
 #include "EOSKitSubsystem.h"
 #if WITH_EOS_SDK
 #include "Windows/AllowWindowsPlatformTypes.h"
-#include "Windows/PreWindowsApi.h"
-#include "eos_platform.h"
-#include "eos_leaderboards.h"
 #include "eos_sdk.h"
-#include "Windows/PostWindowsApi.h"
+#include "eos_leaderboards.h"
 #include "Windows/HideWindowsPlatformTypes.h"
 #endif
 

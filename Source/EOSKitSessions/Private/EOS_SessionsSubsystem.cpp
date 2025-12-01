@@ -5,11 +5,9 @@
 #include "Kismet/GameplayStatics.h"
 #if WITH_EOS_SDK
 #include "Windows/AllowWindowsPlatformTypes.h"
-#include "Windows/PreWindowsApi.h"
-#include "eos_platform.h"
+#include "eos_sdk.h"
 #include "eos_sessions.h"
 #include "eos_sessions_types.h"
-#include "Windows/PostWindowsApi.h"
 #include "Windows/HideWindowsPlatformTypes.h"
 #endif
 
@@ -40,7 +38,7 @@ EOS_HSessions UEOS_SessionsSubsystem::GetSessionsHandle()
 // Active Session Functions
 // ========================================
 
-TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_ActiveSession_CopyInfo(const FEOSKitHActiveSession& Handle, FEOSKit_ActiveSession_Info& OutActiveSessionInfo)
+EEOSKitResult UEOS_SessionsSubsystem::EOS_ActiveSession_CopyInfo(const FEOSKitHActiveSession& Handle, FEOSKit_ActiveSession_Info& OutActiveSessionInfo)
 {
 	if (!Handle.IsValid())
 	{
@@ -58,17 +56,31 @@ TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_ActiveSession_CopyInfo(co
 	EOS_ActiveSession_CopyInfoOptions Options = {};
 	Options.ApiVersion = EOS_ACTIVESESSION_COPYINFO_API_LATEST;
 	EOS_ActiveSession_Info* Result = nullptr;
-	EOS_EResult ReturnResult = EOS_ActiveSession_CopyInfo(Handle.GetEOSHandle(), &Options, &Result);
+	EOS_EResult ReturnResult = ::EOS_ActiveSession_CopyInfo(Handle.GetEOSHandle(), &Options, &Result);
 	
 	if (ReturnResult == EOS_EResult::EOS_Success && Result)
 	{
 		OutActiveSessionInfo.SessionName = Result->SessionName ? UTF8_TO_TCHAR(Result->SessionName) : TEXT("");
-		OutActiveSessionInfo.SessionId = Result->SessionId ? UTF8_TO_TCHAR(Result->SessionId) : TEXT("");
+		// SessionId is now in SessionDetails
+		if (Result->SessionDetails)
+		{
+			OutActiveSessionInfo.SessionId = Result->SessionDetails->SessionId ? UTF8_TO_TCHAR(Result->SessionDetails->SessionId) : TEXT("");
+			OutActiveSessionInfo.NumOpenPublicConnections = Result->SessionDetails->NumOpenPublicConnections;
+		}
+		else
+		{
+			OutActiveSessionInfo.SessionId = TEXT("");
+			OutActiveSessionInfo.NumOpenPublicConnections = 0;
+		}
 		OutActiveSessionInfo.LocalUserId = FEOSKitProductUserId(Result->LocalUserId);
-		OutActiveSessionInfo.RegisteredPlayers = Result->RegisteredPlayers;
-		OutActiveSessionInfo.NumOpenPublicConnections = Result->NumOpenPublicConnections;
-		OutActiveSessionInfo.NumOpenPrivateConnections = Result->NumOpenPrivateConnections;
-		EOS_ActiveSession_Info_Release(Result);
+		// RegisteredPlayers removed in SDK 1.18 - use EOS_ActiveSession_GetRegisteredPlayerCount/ByIndex instead
+		// Get registered player count
+		EOS_ActiveSession_GetRegisteredPlayerCountOptions PlayerCountOptions = {};
+		PlayerCountOptions.ApiVersion = EOS_ACTIVESESSION_GETREGISTEREDPLAYERCOUNT_API_LATEST;
+		OutActiveSessionInfo.RegisteredPlayers = ::EOS_ActiveSession_GetRegisteredPlayerCount(Handle.GetEOSHandle(), &PlayerCountOptions);
+		// NumOpenPrivateConnections removed in SDK 1.18
+		OutActiveSessionInfo.NumOpenPrivateConnections = 0;
+		::EOS_ActiveSession_Info_Release(Result);
 	}
 	
 	return ConvertEOSResult(ReturnResult);
@@ -86,7 +98,7 @@ FEOSKitProductUserId UEOS_SessionsSubsystem::EOS_ActiveSession_GetRegisteredPlay
 	Options.ApiVersion = EOS_ACTIVESESSION_GETREGISTEREDPLAYERBYINDEX_API_LATEST;
 	Options.PlayerIndex = PlayerIndex;
 	
-	EOS_ProductUserId PlayerId = EOS_ActiveSession_GetRegisteredPlayerByIndex(Handle.GetEOSHandle(), &Options);
+	EOS_ProductUserId PlayerId = ::EOS_ActiveSession_GetRegisteredPlayerByIndex(Handle.GetEOSHandle(), &Options);
 	return FEOSKitProductUserId(PlayerId);
 }
 
@@ -97,14 +109,14 @@ void UEOS_SessionsSubsystem::EOS_ActiveSession_Release(const FEOSKitHActiveSessi
 		UE_LOG(LogTemp, Error, TEXT("EOSKit: Invalid Active Session Handle"));
 		return;
 	}
-	EOS_ActiveSession_Release(Handle.GetEOSHandle());
+	::EOS_ActiveSession_Release(Handle.GetEOSHandle());
 }
 
 // ========================================
 // Session Details Functions
 // ========================================
 
-TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_SessionDetails_CopyInfo(const FEOSKitHSessionDetails& Handle, FEOSKit_SessionDetails_Info& OutSessionInfo)
+EEOSKitResult UEOS_SessionsSubsystem::EOS_SessionDetails_CopyInfo(const FEOSKitHSessionDetails& Handle, FEOSKit_SessionDetails_Info& OutSessionInfo)
 {
 	if (!Handle.IsValid())
 	{
@@ -115,29 +127,28 @@ TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_SessionDetails_CopyInfo(c
 	EOS_SessionDetails_CopyInfoOptions Options = {};
 	Options.ApiVersion = EOS_SESSIONDETAILS_COPYINFO_API_LATEST;
 	EOS_SessionDetails_Info* Result = nullptr;
-	EOS_EResult ReturnResult = EOS_SessionDetails_CopyInfo(Handle.GetEOSHandle(), &Options, &Result);
+	EOS_EResult ReturnResult = ::EOS_SessionDetails_CopyInfo(Handle.GetEOSHandle(), &Options, &Result);
 	
 	if (ReturnResult == EOS_EResult::EOS_Success && Result)
 	{
 		OutSessionInfo.SessionId = Result->SessionId ? UTF8_TO_TCHAR(Result->SessionId) : TEXT("");
 		OutSessionInfo.HostAddress = Result->HostAddress ? UTF8_TO_TCHAR(Result->HostAddress) : TEXT("");
 		OutSessionInfo.NumOpenPublicConnections = Result->NumOpenPublicConnections;
-		OutSessionInfo.NumOpenPrivateConnections = Result->NumOpenPrivateConnections;
+		// NumOpenPrivateConnections removed in SDK 1.18
+		OutSessionInfo.NumOpenPrivateConnections = 0;
 		OutSessionInfo.OwnerUserId = FEOSKitProductUserId(Result->OwnerUserId);
 		
+		// RegisteredPlayers and RegisteredPlayersCount removed in SDK 1.18
+		// To get registered players, use EOS_ActiveSession_GetRegisteredPlayerCount/ByIndex on the active session
 		OutSessionInfo.RegisteredPlayers.Empty();
-		for (uint32_t i = 0; i < Result->RegisteredPlayersCount; i++)
-		{
-			OutSessionInfo.RegisteredPlayers.Add(FEOSKitProductUserId(Result->RegisteredPlayers[i]));
-		}
 		
-		EOS_SessionDetails_Info_Release(Result);
+		::EOS_SessionDetails_Info_Release(Result);
 	}
 	
 	return ConvertEOSResult(ReturnResult);
 }
 
-TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_SessionDetails_CopySessionAttributeByIndex(const FEOSKitHSessionDetails& Handle, int32 AttrIndex, FEOSKit_SessionDetails_Attribute& OutSessionAttribute)
+EEOSKitResult UEOS_SessionsSubsystem::EOS_SessionDetails_CopySessionAttributeByIndex(const FEOSKitHSessionDetails& Handle, int32 AttrIndex, FEOSKit_SessionDetails_Attribute& OutSessionAttribute)
 {
 	if (!Handle.IsValid())
 	{
@@ -149,7 +160,7 @@ TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_SessionDetails_CopySessio
 	Options.ApiVersion = EOS_SESSIONDETAILS_COPYSESSIONATTRIBUTEBYINDEX_API_LATEST;
 	Options.AttrIndex = AttrIndex;
 	EOS_SessionDetails_Attribute* Result = nullptr;
-	EOS_EResult ReturnResult = EOS_SessionDetails_CopySessionAttributeByIndex(Handle.GetEOSHandle(), &Options, &Result);
+	EOS_EResult ReturnResult = ::EOS_SessionDetails_CopySessionAttributeByIndex(Handle.GetEOSHandle(), &Options, &Result);
 	
 	if (ReturnResult == EOS_EResult::EOS_Success && Result)
 	{
@@ -174,13 +185,13 @@ TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_SessionDetails_CopySessio
 			break;
 		}
 		
-		EOS_SessionDetails_Attribute_Release(Result);
+		::EOS_SessionDetails_Attribute_Release(Result);
 	}
 	
 	return ConvertEOSResult(ReturnResult);
 }
 
-TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_SessionDetails_CopySessionAttributeByKey(const FEOSKitHSessionDetails& Handle, const FString& AttrKey, FEOSKit_SessionDetails_Attribute& OutSessionAttribute)
+EEOSKitResult UEOS_SessionsSubsystem::EOS_SessionDetails_CopySessionAttributeByKey(const FEOSKitHSessionDetails& Handle, const FString& AttrKey, FEOSKit_SessionDetails_Attribute& OutSessionAttribute)
 {
 	if (!Handle.IsValid())
 	{
@@ -192,7 +203,7 @@ TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_SessionDetails_CopySessio
 	Options.ApiVersion = EOS_SESSIONDETAILS_COPYSESSIONATTRIBUTEBYKEY_API_LATEST;
 	Options.AttrKey = TCHAR_TO_ANSI(*AttrKey);
 	EOS_SessionDetails_Attribute* Result = nullptr;
-	EOS_EResult ReturnResult = EOS_SessionDetails_CopySessionAttributeByKey(Handle.GetEOSHandle(), &Options, &Result);
+	EOS_EResult ReturnResult = ::EOS_SessionDetails_CopySessionAttributeByKey(Handle.GetEOSHandle(), &Options, &Result);
 	
 	if (ReturnResult == EOS_EResult::EOS_Success && Result)
 	{
@@ -217,7 +228,7 @@ TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_SessionDetails_CopySessio
 			break;
 		}
 		
-		EOS_SessionDetails_Attribute_Release(Result);
+		::EOS_SessionDetails_Attribute_Release(Result);
 	}
 	
 	return ConvertEOSResult(ReturnResult);
@@ -233,14 +244,14 @@ int32 UEOS_SessionsSubsystem::EOS_SessionDetails_GetSessionAttributeCount(const 
 
 	EOS_SessionDetails_GetSessionAttributeCountOptions Options = {};
 	Options.ApiVersion = EOS_SESSIONDETAILS_GETSESSIONATTRIBUTECOUNT_API_LATEST;
-	return EOS_SessionDetails_GetSessionAttributeCount(Handle.GetEOSHandle(), &Options);
+	return ::EOS_SessionDetails_GetSessionAttributeCount(Handle.GetEOSHandle(), &Options);
 }
 
 // ========================================
 // Session Modification Functions
 // ========================================
 
-TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_SessionModification_AddAttribute(const FEOSKitHSessionModification& Handle, const FEOSKit_Sessions_AttributeData& AttrData, TEnumAsByte<EEOSKit_SessionAttributeAdvertisementType> AdvertisementType)
+EEOSKitResult UEOS_SessionsSubsystem::EOS_SessionModification_AddAttribute(const FEOSKitHSessionModification& Handle, const FEOSKit_Sessions_AttributeData& AttrData, EEOSKit_SessionAttributeAdvertisementType AdvertisementType)
 {
 	if (!Handle.IsValid())
 	{
@@ -250,12 +261,12 @@ TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_SessionModification_AddAt
 
 	EOS_SessionModification_AddAttributeOptions Options = {};
 	Options.ApiVersion = EOS_SESSIONMODIFICATION_ADDATTRIBUTE_API_LATEST;
-	Options.AdvertisementType = static_cast<EOS_ESessionAttributeAdvertisementType>(AdvertisementType.GetValue());
+	Options.AdvertisementType = static_cast<EOS_ESessionAttributeAdvertisementType>(AdvertisementType);
 	
 	EOS_Sessions_AttributeData LocalTemp = AttrData.GetValueAsEosType();
 	Options.SessionAttribute = &LocalTemp;
 	
-	return ConvertEOSResult(EOS_SessionModification_AddAttribute(Handle.GetEOSHandle(), &Options));
+	return ConvertEOSResult(::EOS_SessionModification_AddAttribute(Handle.GetEOSHandle(), &Options));
 }
 
 void UEOS_SessionsSubsystem::EOS_SessionModification_Release(const FEOSKitHSessionModification& Handle)
@@ -265,10 +276,10 @@ void UEOS_SessionsSubsystem::EOS_SessionModification_Release(const FEOSKitHSessi
 		UE_LOG(LogTemp, Error, TEXT("EOSKit: Invalid Session Modification Handle"));
 		return;
 	}
-	EOS_SessionModification_Release(Handle.GetEOSHandle());
+	::EOS_SessionModification_Release(Handle.GetEOSHandle());
 }
 
-TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_SessionModification_RemoveAttribute(const FEOSKitHSessionModification& Handle, const FString& Key)
+EEOSKitResult UEOS_SessionsSubsystem::EOS_SessionModification_RemoveAttribute(const FEOSKitHSessionModification& Handle, const FString& Key)
 {
 	if (!Handle.IsValid())
 	{
@@ -280,10 +291,10 @@ TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_SessionModification_Remov
 	Options.ApiVersion = EOS_SESSIONMODIFICATION_REMOVEATTRIBUTE_API_LATEST;
 	Options.Key = TCHAR_TO_ANSI(*Key);
 	
-	return ConvertEOSResult(EOS_SessionModification_RemoveAttribute(Handle.GetEOSHandle(), &Options));
+	return ConvertEOSResult(::EOS_SessionModification_RemoveAttribute(Handle.GetEOSHandle(), &Options));
 }
 
-TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_SessionModification_SetAllowedPlatformIds(const FEOSKitHSessionModification& Handle, const TArray<int32>& PlatformIds)
+EEOSKitResult UEOS_SessionsSubsystem::EOS_SessionModification_SetAllowedPlatformIds(const FEOSKitHSessionModification& Handle, const TArray<int32>& PlatformIds)
 {
 	if (!Handle.IsValid())
 	{
@@ -303,18 +314,18 @@ TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_SessionModification_SetAl
 			PlatformIdsData[i] = PlatformIds[i];
 		}
 		Options.AllowedPlatformIds = PlatformIdsData;
-		EOS_EResult Result = EOS_SessionModification_SetAllowedPlatformIds(Handle.GetEOSHandle(), &Options);
+		EOS_EResult Result = ::EOS_SessionModification_SetAllowedPlatformIds(Handle.GetEOSHandle(), &Options);
 		delete[] PlatformIdsData;
 		return ConvertEOSResult(Result);
 	}
 	else
 	{
 		Options.AllowedPlatformIds = nullptr;
-		return ConvertEOSResult(EOS_SessionModification_SetAllowedPlatformIds(Handle.GetEOSHandle(), &Options));
+		return ConvertEOSResult(::EOS_SessionModification_SetAllowedPlatformIds(Handle.GetEOSHandle(), &Options));
 	}
 }
 
-TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_SessionModification_SetBucketId(const FEOSKitHSessionModification& Handle, const FString& BucketId)
+EEOSKitResult UEOS_SessionsSubsystem::EOS_SessionModification_SetBucketId(const FEOSKitHSessionModification& Handle, const FString& BucketId)
 {
 	if (!Handle.IsValid())
 	{
@@ -326,10 +337,10 @@ TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_SessionModification_SetBu
 	Options.ApiVersion = EOS_SESSIONMODIFICATION_SETBUCKETID_API_LATEST;
 	Options.BucketId = TCHAR_TO_ANSI(*BucketId);
 	
-	return ConvertEOSResult(EOS_SessionModification_SetBucketId(Handle.GetEOSHandle(), &Options));
+	return ConvertEOSResult(::EOS_SessionModification_SetBucketId(Handle.GetEOSHandle(), &Options));
 }
 
-TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_SessionModification_SetHostAddress(const FEOSKitHSessionModification& Handle, const FString& HostAddress)
+EEOSKitResult UEOS_SessionsSubsystem::EOS_SessionModification_SetHostAddress(const FEOSKitHSessionModification& Handle, const FString& HostAddress)
 {
 	if (!Handle.IsValid())
 	{
@@ -341,10 +352,10 @@ TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_SessionModification_SetHo
 	Options.ApiVersion = EOS_SESSIONMODIFICATION_SETHOSTADDRESS_API_LATEST;
 	Options.HostAddress = TCHAR_TO_ANSI(*HostAddress);
 	
-	return ConvertEOSResult(EOS_SessionModification_SetHostAddress(Handle.GetEOSHandle(), &Options));
+	return ConvertEOSResult(::EOS_SessionModification_SetHostAddress(Handle.GetEOSHandle(), &Options));
 }
 
-TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_SessionModification_SetInvitesAllowed(const FEOSKitHSessionModification& Handle, bool bInvitesAllowed)
+EEOSKitResult UEOS_SessionsSubsystem::EOS_SessionModification_SetInvitesAllowed(const FEOSKitHSessionModification& Handle, bool bInvitesAllowed)
 {
 	if (!Handle.IsValid())
 	{
@@ -356,10 +367,10 @@ TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_SessionModification_SetIn
 	Options.ApiVersion = EOS_SESSIONMODIFICATION_SETINVITESALLOWED_API_LATEST;
 	Options.bInvitesAllowed = bInvitesAllowed ? EOS_TRUE : EOS_FALSE;
 	
-	return ConvertEOSResult(EOS_SessionModification_SetInvitesAllowed(Handle.GetEOSHandle(), &Options));
+	return ConvertEOSResult(::EOS_SessionModification_SetInvitesAllowed(Handle.GetEOSHandle(), &Options));
 }
 
-TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_SessionModification_SetJoinInProgressAllowed(const FEOSKitHSessionModification& Handle, bool bAllowJoinInProgress)
+EEOSKitResult UEOS_SessionsSubsystem::EOS_SessionModification_SetJoinInProgressAllowed(const FEOSKitHSessionModification& Handle, bool bAllowJoinInProgress)
 {
 	if (!Handle.IsValid())
 	{
@@ -371,10 +382,10 @@ TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_SessionModification_SetJo
 	Options.ApiVersion = EOS_SESSIONMODIFICATION_SETJOININPROGRESSALLOWED_API_LATEST;
 	Options.bAllowJoinInProgress = bAllowJoinInProgress ? EOS_TRUE : EOS_FALSE;
 	
-	return ConvertEOSResult(EOS_SessionModification_SetJoinInProgressAllowed(Handle.GetEOSHandle(), &Options));
+	return ConvertEOSResult(::EOS_SessionModification_SetJoinInProgressAllowed(Handle.GetEOSHandle(), &Options));
 }
 
-TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_SessionModification_SetMaxPlayers(const FEOSKitHSessionModification& Handle, int32 MaxPlayers)
+EEOSKitResult UEOS_SessionsSubsystem::EOS_SessionModification_SetMaxPlayers(const FEOSKitHSessionModification& Handle, int32 MaxPlayers)
 {
 	if (!Handle.IsValid())
 	{
@@ -386,10 +397,10 @@ TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_SessionModification_SetMa
 	Options.ApiVersion = EOS_SESSIONMODIFICATION_SETMAXPLAYERS_API_LATEST;
 	Options.MaxPlayers = MaxPlayers;
 	
-	return ConvertEOSResult(EOS_SessionModification_SetMaxPlayers(Handle.GetEOSHandle(), &Options));
+	return ConvertEOSResult(::EOS_SessionModification_SetMaxPlayers(Handle.GetEOSHandle(), &Options));
 }
 
-TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_SessionModification_SetPermissionLevel(const FEOSKitHSessionModification& Handle, TEnumAsByte<EEOSKit_EOnlineSessionPermissionLevel> PermissionLevel)
+EEOSKitResult UEOS_SessionsSubsystem::EOS_SessionModification_SetPermissionLevel(const FEOSKitHSessionModification& Handle, EEOSKit_EOnlineSessionPermissionLevel PermissionLevel)
 {
 	if (!Handle.IsValid())
 	{
@@ -399,9 +410,9 @@ TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_SessionModification_SetPe
 
 	EOS_SessionModification_SetPermissionLevelOptions Options = {};
 	Options.ApiVersion = EOS_SESSIONMODIFICATION_SETPERMISSIONLEVEL_API_LATEST;
-	Options.PermissionLevel = static_cast<EOS_EOnlineSessionPermissionLevel>(PermissionLevel.GetValue());
+	Options.PermissionLevel = static_cast<EOS_EOnlineSessionPermissionLevel>(PermissionLevel);
 	
-	return ConvertEOSResult(EOS_SessionModification_SetPermissionLevel(Handle.GetEOSHandle(), &Options));
+	return ConvertEOSResult(::EOS_SessionModification_SetPermissionLevel(Handle.GetEOSHandle(), &Options));
 }
 
 // ========================================
@@ -421,7 +432,7 @@ FEOSKit_NotificationId UEOS_SessionsSubsystem::EOS_Sessions_AddNotifyJoinSession
 	EOS_Sessions_AddNotifyJoinSessionAcceptedOptions Options = {};
 	Options.ApiVersion = EOS_SESSIONS_ADDNOTIFYJOINSESSIONACCEPTED_API_LATEST;
 	
-	EOS_NotificationId NotificationId = EOS_Sessions_AddNotifyJoinSessionAccepted(SessionsHandle, &Options, this, [](const EOS_Sessions_JoinSessionAcceptedCallbackInfo* Data)
+	EOS_NotificationId NotificationId = ::EOS_Sessions_AddNotifyJoinSessionAccepted(SessionsHandle, &Options, this, [](const EOS_Sessions_JoinSessionAcceptedCallbackInfo* Data)
 	{
 		if (UEOS_SessionsSubsystem* Subsystem = static_cast<UEOS_SessionsSubsystem*>(Data->ClientData))
 		{
@@ -446,7 +457,7 @@ FEOSKit_NotificationId UEOS_SessionsSubsystem::EOS_Sessions_AddNotifyLeaveSessio
 	EOS_Sessions_AddNotifyLeaveSessionRequestedOptions Options = {};
 	Options.ApiVersion = EOS_SESSIONS_ADDNOTIFYLEAVESESSIONREQUESTED_API_LATEST;
 	
-	EOS_NotificationId NotificationId = EOS_Sessions_AddNotifyLeaveSessionRequested(SessionsHandle, &Options, this, [](const EOS_Sessions_LeaveSessionRequestedCallbackInfo* Data)
+	EOS_NotificationId NotificationId = ::EOS_Sessions_AddNotifyLeaveSessionRequested(SessionsHandle, &Options, this, [](const EOS_Sessions_LeaveSessionRequestedCallbackInfo* Data)
 	{
 		if (UEOS_SessionsSubsystem* Subsystem = static_cast<UEOS_SessionsSubsystem*>(Data->ClientData))
 		{
@@ -472,7 +483,7 @@ FEOSKit_NotificationId UEOS_SessionsSubsystem::EOS_Sessions_AddNotifySendSession
 	EOS_Sessions_AddNotifySendSessionNativeInviteRequestedOptions Options = {};
 	Options.ApiVersion = EOS_SESSIONS_ADDNOTIFYSENDSESSIONNATIVEINVITEREQUESTED_API_LATEST;
 	
-	EOS_NotificationId NotificationId = EOS_Sessions_AddNotifySendSessionNativeInviteRequested(SessionsHandle, &Options, this, [](const EOS_Sessions_SendSessionNativeInviteRequestedCallbackInfo* Data)
+	EOS_NotificationId NotificationId = ::EOS_Sessions_AddNotifySendSessionNativeInviteRequested(SessionsHandle, &Options, this, [](const EOS_Sessions_SendSessionNativeInviteRequestedCallbackInfo* Data)
 	{
 		if (UEOS_SessionsSubsystem* Subsystem = static_cast<UEOS_SessionsSubsystem*>(Data->ClientData))
 		{
@@ -500,7 +511,7 @@ FEOSKit_NotificationId UEOS_SessionsSubsystem::EOS_Sessions_AddNotifySessionInvi
 	EOS_Sessions_AddNotifySessionInviteAcceptedOptions Options = {};
 	Options.ApiVersion = EOS_SESSIONS_ADDNOTIFYSESSIONINVITEACCEPTED_API_LATEST;
 	
-	EOS_NotificationId NotificationId = EOS_Sessions_AddNotifySessionInviteAccepted(SessionsHandle, &Options, this, [](const EOS_Sessions_SessionInviteAcceptedCallbackInfo* Data)
+	EOS_NotificationId NotificationId = ::EOS_Sessions_AddNotifySessionInviteAccepted(SessionsHandle, &Options, this, [](const EOS_Sessions_SessionInviteAcceptedCallbackInfo* Data)
 	{
 		if (UEOS_SessionsSubsystem* Subsystem = static_cast<UEOS_SessionsSubsystem*>(Data->ClientData))
 		{
@@ -528,7 +539,7 @@ FEOSKit_NotificationId UEOS_SessionsSubsystem::EOS_Sessions_AddNotifySessionInvi
 	EOS_Sessions_AddNotifySessionInviteReceivedOptions Options = {};
 	Options.ApiVersion = EOS_SESSIONS_ADDNOTIFYSESSIONINVITERECEIVED_API_LATEST;
 	
-	EOS_NotificationId NotificationId = EOS_Sessions_AddNotifySessionInviteReceived(SessionsHandle, &Options, this, [](const EOS_Sessions_SessionInviteReceivedCallbackInfo* Data)
+	EOS_NotificationId NotificationId = ::EOS_Sessions_AddNotifySessionInviteReceived(SessionsHandle, &Options, this, [](const EOS_Sessions_SessionInviteReceivedCallbackInfo* Data)
 	{
 		if (UEOS_SessionsSubsystem* Subsystem = static_cast<UEOS_SessionsSubsystem*>(Data->ClientData))
 		{
@@ -555,7 +566,7 @@ FEOSKit_NotificationId UEOS_SessionsSubsystem::EOS_Sessions_AddNotifySessionInvi
 	EOS_Sessions_AddNotifySessionInviteRejectedOptions Options = {};
 	Options.ApiVersion = EOS_SESSIONS_ADDNOTIFYSESSIONINVITEREJECTED_API_LATEST;
 	
-	EOS_NotificationId NotificationId = EOS_Sessions_AddNotifySessionInviteRejected(SessionsHandle, &Options, this, [](const EOS_Sessions_SessionInviteRejectedCallbackInfo* Data)
+	EOS_NotificationId NotificationId = ::EOS_Sessions_AddNotifySessionInviteRejected(SessionsHandle, &Options, this, [](const EOS_Sessions_SessionInviteRejectedCallbackInfo* Data)
 	{
 		if (UEOS_SessionsSubsystem* Subsystem = static_cast<UEOS_SessionsSubsystem*>(Data->ClientData))
 		{
@@ -574,7 +585,7 @@ FEOSKit_NotificationId UEOS_SessionsSubsystem::EOS_Sessions_AddNotifySessionInvi
 // Session Management Functions
 // ========================================
 
-TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_Sessions_CopyActiveSessionHandle(const FString& SessionName, FEOSKitHActiveSession& OutActiveSessionHandle)
+EEOSKitResult UEOS_SessionsSubsystem::EOS_Sessions_CopyActiveSessionHandle(const FString& SessionName, FEOSKitHActiveSession& OutActiveSessionHandle)
 {
 	EOS_HSessions SessionsHandle = GetSessionsHandle();
 	if (!SessionsHandle)
@@ -588,7 +599,7 @@ TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_Sessions_CopyActiveSessio
 	Options.SessionName = TCHAR_TO_ANSI(*SessionName);
 	
 	EOS_HActiveSession LocalHandle = nullptr;
-	EOS_EResult ReturnResult = EOS_Sessions_CopyActiveSessionHandle(SessionsHandle, &Options, &LocalHandle);
+	EOS_EResult ReturnResult = ::EOS_Sessions_CopyActiveSessionHandle(SessionsHandle, &Options, &LocalHandle);
 	
 	if (ReturnResult == EOS_EResult::EOS_Success)
 	{
@@ -598,7 +609,7 @@ TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_Sessions_CopyActiveSessio
 	return ConvertEOSResult(ReturnResult);
 }
 
-TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_Sessions_CopySessionHandleByInviteId(const FString& InviteId, FEOSKitHSessionDetails& OutSessionHandle)
+EEOSKitResult UEOS_SessionsSubsystem::EOS_Sessions_CopySessionHandleByInviteId(const FString& InviteId, FEOSKitHSessionDetails& OutSessionHandle)
 {
 	EOS_HSessions SessionsHandle = GetSessionsHandle();
 	if (!SessionsHandle)
@@ -612,7 +623,7 @@ TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_Sessions_CopySessionHandl
 	Options.InviteId = TCHAR_TO_ANSI(*InviteId);
 	
 	EOS_HSessionDetails LocalHandle = nullptr;
-	EOS_EResult ReturnResult = EOS_Sessions_CopySessionHandleByInviteId(SessionsHandle, &Options, &LocalHandle);
+	EOS_EResult ReturnResult = ::EOS_Sessions_CopySessionHandleByInviteId(SessionsHandle, &Options, &LocalHandle);
 	
 	if (ReturnResult == EOS_EResult::EOS_Success)
 	{
@@ -622,7 +633,7 @@ TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_Sessions_CopySessionHandl
 	return ConvertEOSResult(ReturnResult);
 }
 
-TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_Sessions_CopySessionHandleByUiEventId(int64 UiEventId, FEOSKitHSessionDetails& OutSessionHandle)
+EEOSKitResult UEOS_SessionsSubsystem::EOS_Sessions_CopySessionHandleByUiEventId(int64 UiEventId, FEOSKitHSessionDetails& OutSessionHandle)
 {
 	EOS_HSessions SessionsHandle = GetSessionsHandle();
 	if (!SessionsHandle)
@@ -636,7 +647,7 @@ TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_Sessions_CopySessionHandl
 	Options.UiEventId = static_cast<EOS_UI_EventId>(UiEventId);
 	
 	EOS_HSessionDetails LocalHandle = nullptr;
-	EOS_EResult ReturnResult = EOS_Sessions_CopySessionHandleByUiEventId(SessionsHandle, &Options, &LocalHandle);
+	EOS_EResult ReturnResult = ::EOS_Sessions_CopySessionHandleByUiEventId(SessionsHandle, &Options, &LocalHandle);
 	
 	if (ReturnResult == EOS_EResult::EOS_Success)
 	{
@@ -646,7 +657,7 @@ TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_Sessions_CopySessionHandl
 	return ConvertEOSResult(ReturnResult);
 }
 
-TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_Sessions_CopySessionHandleForPresence(const FEOSKitProductUserId& LocalUserId, FEOSKitHSessionDetails& OutSessionHandle)
+EEOSKitResult UEOS_SessionsSubsystem::EOS_Sessions_CopySessionHandleForPresence(const FEOSKitProductUserId& LocalUserId, FEOSKitHSessionDetails& OutSessionHandle)
 {
 	EOS_HSessions SessionsHandle = GetSessionsHandle();
 	if (!SessionsHandle)
@@ -667,7 +678,7 @@ TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_Sessions_CopySessionHandl
 	Options.LocalUserId = LocalUserIdEOS;
 	
 	EOS_HSessionDetails LocalHandle = nullptr;
-	EOS_EResult ReturnResult = EOS_Sessions_CopySessionHandleForPresence(SessionsHandle, &Options, &LocalHandle);
+	EOS_EResult ReturnResult = ::EOS_Sessions_CopySessionHandleForPresence(SessionsHandle, &Options, &LocalHandle);
 	
 	if (ReturnResult == EOS_EResult::EOS_Success)
 	{
@@ -677,7 +688,7 @@ TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_Sessions_CopySessionHandl
 	return ConvertEOSResult(ReturnResult);
 }
 
-TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_Sessions_CreateSessionModification(const FEOSKit_Sessions_CreateSessionModificationOptions& Options, FEOSKitHSessionModification& OutSessionModificationHandle)
+EEOSKitResult UEOS_SessionsSubsystem::EOS_Sessions_CreateSessionModification(const FEOSKit_Sessions_CreateSessionModificationOptions& Options, FEOSKitHSessionModification& OutSessionModificationHandle)
 {
 	EOS_HSessions SessionsHandle = GetSessionsHandle();
 	if (!SessionsHandle)
@@ -688,7 +699,7 @@ TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_Sessions_CreateSessionMod
 
 	EOS_Sessions_CreateSessionModificationOptions LocalOptions = Options.ToEosStruct();
 	EOS_HSessionModification LocalHandle = nullptr;
-	EOS_EResult ReturnResult = EOS_Sessions_CreateSessionModification(SessionsHandle, &LocalOptions, &LocalHandle);
+	EOS_EResult ReturnResult = ::EOS_Sessions_CreateSessionModification(SessionsHandle, &LocalOptions, &LocalHandle);
 	
 	// Clean up allocated memory
 	if (LocalOptions.AllowedPlatformIds)
@@ -704,7 +715,7 @@ TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_Sessions_CreateSessionMod
 	return ConvertEOSResult(ReturnResult);
 }
 
-TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_Sessions_CreateSessionSearch(int32 MaxSearchResults, FEOSKitHSessionSearch& OutSessionSearchHandle)
+EEOSKitResult UEOS_SessionsSubsystem::EOS_Sessions_CreateSessionSearch(int32 MaxSearchResults, FEOSKitHSessionSearch& OutSessionSearchHandle)
 {
 	EOS_HSessions SessionsHandle = GetSessionsHandle();
 	if (!SessionsHandle)
@@ -718,7 +729,7 @@ TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_Sessions_CreateSessionSea
 	Options.MaxSearchResults = MaxSearchResults;
 	
 	EOS_HSessionSearch LocalHandle = nullptr;
-	EOS_EResult ReturnResult = EOS_Sessions_CreateSessionSearch(SessionsHandle, &Options, &LocalHandle);
+	EOS_EResult ReturnResult = ::EOS_Sessions_CreateSessionSearch(SessionsHandle, &Options, &LocalHandle);
 	
 	if (ReturnResult == EOS_EResult::EOS_Success)
 	{
@@ -741,7 +752,7 @@ void UEOS_SessionsSubsystem::EOS_Sessions_DumpSessionState(const FString& Sessio
 	Options.ApiVersion = EOS_SESSIONS_DUMPSESSIONSTATE_API_LATEST;
 	Options.SessionName = TCHAR_TO_ANSI(*SessionName);
 	
-	EOS_Sessions_DumpSessionState(SessionsHandle, &Options);
+	::EOS_Sessions_DumpSessionState(SessionsHandle, &Options);
 }
 
 int32 UEOS_SessionsSubsystem::EOS_Sessions_GetInviteCount(const FEOSKitProductUserId& LocalUserId)
@@ -764,7 +775,7 @@ int32 UEOS_SessionsSubsystem::EOS_Sessions_GetInviteCount(const FEOSKitProductUs
 	Options.ApiVersion = EOS_SESSIONS_GETINVITECOUNT_API_LATEST;
 	Options.LocalUserId = LocalUserIdEOS;
 	
-	return EOS_Sessions_GetInviteCount(SessionsHandle, &Options);
+	return ::EOS_Sessions_GetInviteCount(SessionsHandle, &Options);
 }
 
 FString UEOS_SessionsSubsystem::EOS_Sessions_GetInviteIdByIndex(const FEOSKitProductUserId& LocalUserId, int32 Index)
@@ -790,7 +801,7 @@ FString UEOS_SessionsSubsystem::EOS_Sessions_GetInviteIdByIndex(const FEOSKitPro
 	
 	char Buffer[EOS_SESSIONS_INVITEID_MAX_LENGTH];
 	int32_t InOutBufferLength = EOS_SESSIONS_INVITEID_MAX_LENGTH;
-	EOS_EResult Result = EOS_Sessions_GetInviteIdByIndex(SessionsHandle, &Options, Buffer, &InOutBufferLength);
+	EOS_EResult Result = ::EOS_Sessions_GetInviteIdByIndex(SessionsHandle, &Options, Buffer, &InOutBufferLength);
 	
 	if (Result == EOS_EResult::EOS_Success)
 	{
@@ -800,7 +811,7 @@ FString UEOS_SessionsSubsystem::EOS_Sessions_GetInviteIdByIndex(const FEOSKitPro
 	return TEXT("");
 }
 
-TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_Sessions_IsUserInSession(const FEOSKitProductUserId& TargetUserId, const FString& SessionName)
+EEOSKitResult UEOS_SessionsSubsystem::EOS_Sessions_IsUserInSession(const FEOSKitProductUserId& TargetUserId, const FString& SessionName)
 {
 	EOS_HSessions SessionsHandle = GetSessionsHandle();
 	if (!SessionsHandle)
@@ -821,7 +832,7 @@ TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_Sessions_IsUserInSession(
 	Options.TargetUserId = TargetUserIdEOS;
 	Options.SessionName = TCHAR_TO_ANSI(*SessionName);
 	
-	return ConvertEOSResult(EOS_Sessions_IsUserInSession(SessionsHandle, &Options));
+	return ConvertEOSResult(::EOS_Sessions_IsUserInSession(SessionsHandle, &Options));
 }
 
 void UEOS_SessionsSubsystem::EOS_Sessions_RemoveNotifyJoinSessionAccepted(const FEOSKit_NotificationId& InId)
@@ -832,7 +843,7 @@ void UEOS_SessionsSubsystem::EOS_Sessions_RemoveNotifyJoinSessionAccepted(const 
 		UE_LOG(LogTemp, Error, TEXT("EOSKit: Invalid Sessions Handle"));
 		return;
 	}
-	EOS_Sessions_RemoveNotifyJoinSessionAccepted(SessionsHandle, InId.GetEOSNotificationId());
+	::EOS_Sessions_RemoveNotifyJoinSessionAccepted(SessionsHandle, InId.GetEOSNotificationId());
 }
 
 void UEOS_SessionsSubsystem::EOS_Sessions_RemoveNotifyLeaveSessionRequested(const FEOSKit_NotificationId& InId)
@@ -843,7 +854,7 @@ void UEOS_SessionsSubsystem::EOS_Sessions_RemoveNotifyLeaveSessionRequested(cons
 		UE_LOG(LogTemp, Error, TEXT("EOSKit: Invalid Sessions Handle"));
 		return;
 	}
-	EOS_Sessions_RemoveNotifyLeaveSessionRequested(SessionsHandle, InId.GetEOSNotificationId());
+	::EOS_Sessions_RemoveNotifyLeaveSessionRequested(SessionsHandle, InId.GetEOSNotificationId());
 }
 
 void UEOS_SessionsSubsystem::EOS_Sessions_RemoveNotifySendSessionNativeInviteRequested(const FEOSKit_NotificationId& InId)
@@ -854,7 +865,7 @@ void UEOS_SessionsSubsystem::EOS_Sessions_RemoveNotifySendSessionNativeInviteReq
 		UE_LOG(LogTemp, Error, TEXT("EOSKit: Invalid Sessions Handle"));
 		return;
 	}
-	EOS_Sessions_RemoveNotifySendSessionNativeInviteRequested(SessionsHandle, InId.GetEOSNotificationId());
+	::EOS_Sessions_RemoveNotifySendSessionNativeInviteRequested(SessionsHandle, InId.GetEOSNotificationId());
 }
 
 void UEOS_SessionsSubsystem::EOS_Sessions_RemoveNotifySessionInviteAccepted(const FEOSKit_NotificationId& InId)
@@ -865,7 +876,7 @@ void UEOS_SessionsSubsystem::EOS_Sessions_RemoveNotifySessionInviteAccepted(cons
 		UE_LOG(LogTemp, Error, TEXT("EOSKit: Invalid Sessions Handle"));
 		return;
 	}
-	EOS_Sessions_RemoveNotifySessionInviteAccepted(SessionsHandle, InId.GetEOSNotificationId());
+	::EOS_Sessions_RemoveNotifySessionInviteAccepted(SessionsHandle, InId.GetEOSNotificationId());
 }
 
 void UEOS_SessionsSubsystem::EOS_Sessions_RemoveNotifySessionInviteReceived(const FEOSKit_NotificationId& InId)
@@ -876,7 +887,7 @@ void UEOS_SessionsSubsystem::EOS_Sessions_RemoveNotifySessionInviteReceived(cons
 		UE_LOG(LogTemp, Error, TEXT("EOSKit: Invalid Sessions Handle"));
 		return;
 	}
-	EOS_Sessions_RemoveNotifySessionInviteReceived(SessionsHandle, InId.GetEOSNotificationId());
+	::EOS_Sessions_RemoveNotifySessionInviteReceived(SessionsHandle, InId.GetEOSNotificationId());
 }
 
 void UEOS_SessionsSubsystem::EOS_Sessions_RemoveNotifySessionInviteRejected(const FEOSKit_NotificationId& InId)
@@ -887,10 +898,10 @@ void UEOS_SessionsSubsystem::EOS_Sessions_RemoveNotifySessionInviteRejected(cons
 		UE_LOG(LogTemp, Error, TEXT("EOSKit: Invalid Sessions Handle"));
 		return;
 	}
-	EOS_Sessions_RemoveNotifySessionInviteRejected(SessionsHandle, InId.GetEOSNotificationId());
+	::EOS_Sessions_RemoveNotifySessionInviteRejected(SessionsHandle, InId.GetEOSNotificationId());
 }
 
-TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_Sessions_UpdateSessionModification(const FString& SessionName, FEOSKitHSessionModification& OutSessionModificationHandle)
+EEOSKitResult UEOS_SessionsSubsystem::EOS_Sessions_UpdateSessionModification(const FString& SessionName, FEOSKitHSessionModification& OutSessionModificationHandle)
 {
 	EOS_HSessions SessionsHandle = GetSessionsHandle();
 	if (!SessionsHandle)
@@ -904,7 +915,7 @@ TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_Sessions_UpdateSessionMod
 	Options.SessionName = TCHAR_TO_ANSI(*SessionName);
 	
 	EOS_HSessionModification LocalHandle = nullptr;
-	EOS_EResult ReturnResult = EOS_Sessions_UpdateSessionModification(SessionsHandle, &Options, &LocalHandle);
+	EOS_EResult ReturnResult = ::EOS_Sessions_UpdateSessionModification(SessionsHandle, &Options, &LocalHandle);
 	
 	if (ReturnResult == EOS_EResult::EOS_Success)
 	{
@@ -918,7 +929,7 @@ TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_Sessions_UpdateSessionMod
 // Session Search Functions
 // ========================================
 
-TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_SessionSearch_CopySearchResultByIndex(const FEOSKitHSessionSearch& Handle, int32 SessionIndex, FEOSKitHSessionDetails& OutSessionHandle)
+EEOSKitResult UEOS_SessionsSubsystem::EOS_SessionSearch_CopySearchResultByIndex(const FEOSKitHSessionSearch& Handle, int32 SessionIndex, FEOSKitHSessionDetails& OutSessionHandle)
 {
 	if (!Handle.IsValid())
 	{
@@ -931,7 +942,7 @@ TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_SessionSearch_CopySearchR
 	Options.SessionIndex = SessionIndex;
 	
 	EOS_HSessionDetails LocalHandle = nullptr;
-	EOS_EResult ReturnResult = EOS_SessionSearch_CopySearchResultByIndex(Handle.GetEOSHandle(), &Options, &LocalHandle);
+	EOS_EResult ReturnResult = ::EOS_SessionSearch_CopySearchResultByIndex(Handle.GetEOSHandle(), &Options, &LocalHandle);
 	
 	if (ReturnResult == EOS_EResult::EOS_Success)
 	{
@@ -952,7 +963,7 @@ int32 UEOS_SessionsSubsystem::EOS_SessionSearch_GetSearchResultCount(const FEOSK
 	EOS_SessionSearch_GetSearchResultCountOptions Options = {};
 	Options.ApiVersion = EOS_SESSIONSEARCH_GETSEARCHRESULTCOUNT_API_LATEST;
 	
-	return EOS_SessionSearch_GetSearchResultCount(Handle.GetEOSHandle(), &Options);
+	return ::EOS_SessionSearch_GetSearchResultCount(Handle.GetEOSHandle(), &Options);
 }
 
 void UEOS_SessionsSubsystem::EOS_SessionSearch_Release(const FEOSKitHSessionSearch& Handle)
@@ -962,10 +973,10 @@ void UEOS_SessionsSubsystem::EOS_SessionSearch_Release(const FEOSKitHSessionSear
 		UE_LOG(LogTemp, Error, TEXT("EOSKit: Invalid Session Search Handle"));
 		return;
 	}
-	EOS_SessionSearch_Release(Handle.GetEOSHandle());
+	::EOS_SessionSearch_Release(Handle.GetEOSHandle());
 }
 
-TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_SessionSearch_RemoveParameter(const FEOSKitHSessionSearch& Handle, const FString& Key, TEnumAsByte<EEOSKit_EComparisonOp> ComparisonOp)
+EEOSKitResult UEOS_SessionsSubsystem::EOS_SessionSearch_RemoveParameter(const FEOSKitHSessionSearch& Handle, const FString& Key, EEOSKit_EComparisonOp ComparisonOp)
 {
 	if (!Handle.IsValid())
 	{
@@ -975,13 +986,13 @@ TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_SessionSearch_RemoveParam
 
 	EOS_SessionSearch_RemoveParameterOptions Options = {};
 	Options.ApiVersion = EOS_SESSIONSEARCH_REMOVEPARAMETER_API_LATEST;
-	Options.ComparisonOp = static_cast<EOS_EComparisonOp>(ComparisonOp.GetValue());
+	Options.ComparisonOp = static_cast<EOS_EComparisonOp>(ComparisonOp);
 	Options.Key = TCHAR_TO_ANSI(*Key);
 	
-	return ConvertEOSResult(EOS_SessionSearch_RemoveParameter(Handle.GetEOSHandle(), &Options));
+	return ConvertEOSResult(::EOS_SessionSearch_RemoveParameter(Handle.GetEOSHandle(), &Options));
 }
 
-TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_SessionSearch_SetMaxResults(const FEOSKitHSessionSearch& Handle, int32 MaxSearchResults)
+EEOSKitResult UEOS_SessionsSubsystem::EOS_SessionSearch_SetMaxResults(const FEOSKitHSessionSearch& Handle, int32 MaxSearchResults)
 {
 	if (!Handle.IsValid())
 	{
@@ -993,10 +1004,10 @@ TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_SessionSearch_SetMaxResul
 	Options.ApiVersion = EOS_SESSIONSEARCH_SETMAXSEARCHRESULTS_API_LATEST;
 	Options.MaxSearchResults = MaxSearchResults;
 	
-	return ConvertEOSResult(EOS_SessionSearch_SetMaxResults(Handle.GetEOSHandle(), &Options));
+	return ConvertEOSResult(::EOS_SessionSearch_SetMaxResults(Handle.GetEOSHandle(), &Options));
 }
 
-TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_SessionSearch_SetParameter(const FEOSKitHSessionSearch& Handle, const FEOSKit_Sessions_AttributeData& Parameter, TEnumAsByte<EEOSKit_EComparisonOp> ComparisonOp)
+EEOSKitResult UEOS_SessionsSubsystem::EOS_SessionSearch_SetParameter(const FEOSKitHSessionSearch& Handle, const FEOSKit_Sessions_AttributeData& Parameter, EEOSKit_EComparisonOp ComparisonOp)
 {
 	if (!Handle.IsValid())
 	{
@@ -1006,15 +1017,15 @@ TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_SessionSearch_SetParamete
 
 	EOS_SessionSearch_SetParameterOptions Options = {};
 	Options.ApiVersion = EOS_SESSIONSEARCH_SETPARAMETER_API_LATEST;
-	Options.ComparisonOp = static_cast<EOS_EComparisonOp>(ComparisonOp.GetValue());
+	Options.ComparisonOp = static_cast<EOS_EComparisonOp>(ComparisonOp);
 	
 	EOS_Sessions_AttributeData LocalData = Parameter.GetValueAsEosType();
 	Options.Parameter = &LocalData;
 	
-	return ConvertEOSResult(EOS_SessionSearch_SetParameter(Handle.GetEOSHandle(), &Options));
+	return ConvertEOSResult(::EOS_SessionSearch_SetParameter(Handle.GetEOSHandle(), &Options));
 }
 
-TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_SessionSearch_SetSessionId(const FEOSKitHSessionSearch& Handle, const FString& SessionId)
+EEOSKitResult UEOS_SessionsSubsystem::EOS_SessionSearch_SetSessionId(const FEOSKitHSessionSearch& Handle, const FString& SessionId)
 {
 	if (!Handle.IsValid())
 	{
@@ -1026,10 +1037,10 @@ TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_SessionSearch_SetSessionI
 	Options.ApiVersion = EOS_SESSIONSEARCH_SETSESSIONID_API_LATEST;
 	Options.SessionId = TCHAR_TO_ANSI(*SessionId);
 	
-	return ConvertEOSResult(EOS_SessionSearch_SetSessionId(Handle.GetEOSHandle(), &Options));
+	return ConvertEOSResult(::EOS_SessionSearch_SetSessionId(Handle.GetEOSHandle(), &Options));
 }
 
-TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_SessionSearch_SetTargetUserId(const FEOSKitHSessionSearch& Handle, const FEOSKitProductUserId& TargetUserId)
+EEOSKitResult UEOS_SessionsSubsystem::EOS_SessionSearch_SetTargetUserId(const FEOSKitHSessionSearch& Handle, const FEOSKitProductUserId& TargetUserId)
 {
 	if (!Handle.IsValid())
 	{
@@ -1048,6 +1059,6 @@ TEnumAsByte<EEOSKitResult> UEOS_SessionsSubsystem::EOS_SessionSearch_SetTargetUs
 	Options.ApiVersion = EOS_SESSIONSEARCH_SETTARGETUSERID_API_LATEST;
 	Options.TargetUserId = TargetUserIdEOS;
 	
-	return ConvertEOSResult(EOS_SessionSearch_SetTargetUserId(Handle.GetEOSHandle(), &Options));
+	return ConvertEOSResult(::EOS_SessionSearch_SetTargetUserId(Handle.GetEOSHandle(), &Options));
 }
 

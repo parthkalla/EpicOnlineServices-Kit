@@ -10,9 +10,7 @@
 
 #if WITH_EOS_SDK
 #include "Windows/AllowWindowsPlatformTypes.h"
-#include "Windows/PreWindowsApi.h"
 #include "eos_stats.h"
-#include "Windows/PostWindowsApi.h"
 #include "Windows/HideWindowsPlatformTypes.h"
 #endif
 
@@ -120,8 +118,8 @@ private:
 	EOS_HStats GetStatsHandle() const;
 
 	// Callback handlers
-	static void EOS_CALL OnQueryStatsCompleteCallback(const void* Data);
-	static void EOS_CALL OnIngestStatCompleteCallback(const void* Data);
+	static void EOS_CALL OnQueryStatsCompleteCallback(const EOS_Stats_OnQueryStatsCompleteCallbackInfo* Data);
+	static void EOS_CALL OnIngestStatCompleteCallback(const EOS_Stats_IngestStatCompleteCallbackInfo* Data);
 
 	// Delegates
 	FEOSKitOnQueryStatsComplete OnQueryStatsCompleteDelegate;

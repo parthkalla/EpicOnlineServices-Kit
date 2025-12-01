@@ -18,7 +18,7 @@ class EOSKITSESSIONS_API UEOS_Sessions_JoinSession : public UBlueprintAsyncActio
 public:
 	// Join a session, creating a local session under a given session name
 	UFUNCTION(BlueprintCallable, Category = "EOSKit | SDK Functions | Sessions Interface", DisplayName = "EOS_Sessions_JoinSession", meta = (BlueprintInternalUseOnly = "true"))
-	static UEOS_Sessions_JoinSession* EOS_Sessions_JoinSession(const FString& SessionName, const FEOSKitProductUserId& LocalUserId, const FEOSKitHSessionDetails& SessionHandle, bool bPresenceEnabled);
+	static UEOS_Sessions_JoinSession* EOK_Sessions_JoinSession(const FString& SessionName, const FEOSKitProductUserId& LocalUserId, const FEOSKitHSessionDetails& SessionHandle, bool bPresenceEnabled);
 
 	UPROPERTY(BlueprintAssignable, Category = "EOSKit | SDK Functions | Sessions Interface")
 	FEOSKit_OnJoinSessionCallback OnCallback;

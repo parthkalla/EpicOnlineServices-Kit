@@ -5,10 +5,8 @@
 #include "Kismet/GameplayStatics.h"
 #if WITH_EOS_SDK
 #include "Windows/AllowWindowsPlatformTypes.h"
-#include "Windows/PreWindowsApi.h"
-#include "eos_platform.h"
+#include "eos_sdk.h"
 #include "eos_sessions.h"
-#include "Windows/PostWindowsApi.h"
 #include "Windows/HideWindowsPlatformTypes.h"
 #endif
 #include "Async/Async.h"
@@ -27,7 +25,7 @@ struct FSessionCreateContext
 	TArray<TArray<uint8>> AttributeValuesUTF8;
 	EOS_HSessionModification SessionModHandle = nullptr;
 	// Store callback result data
-	EOS_EResult ResultCode = EOS_EResult::EOS_NotConfigured;
+	int32 ResultCode = static_cast<int32>(EOS_EResult::EOS_NotConfigured);
 	FString SessionId;
 };
 
@@ -237,7 +235,7 @@ void UEOSCreateEOKSessionAsync::CreateSession()
 		AttrOptions.AdvertisementType = EOS_ESessionAttributeAdvertisementType::EOS_SAAT_Advertise;
 		
 		EOS_EResult AttrResult = EOS_SessionModification_AddAttribute(SessionModHandle, &AttrOptions);
-		if (AttrResult != EOS_EResult::EOS_Success)
+		if (static_cast<int32>(AttrResult) != static_cast<int32>(EOS_EResult::EOS_Success))
 		{
 			UE_LOG(LogTemp, Warning, TEXT("EOSKit: Failed to add attribute '%s': %s"), *Setting.Key, UTF8_TO_TCHAR(EOS_EResult_ToString(AttrResult)));
 		}
@@ -270,7 +268,7 @@ void UEOSCreateEOKSessionAsync::CreateSession()
 
 			// CRITICAL: Copy callback data into context before scheduling async task
 			// The Data pointer may become invalid after the callback returns
-			Context->ResultCode = Data->ResultCode;
+			Context->ResultCode = static_cast<int32>(Data->ResultCode);
 			if (Data->SessionId && strlen(Data->SessionId) > 0)
 			{
 				Context->SessionId = UTF8_TO_TCHAR(Data->SessionId);
@@ -279,7 +277,7 @@ void UEOSCreateEOKSessionAsync::CreateSession()
 			AsyncTask(ENamedThreads::GameThread, [Context]()
 			{
 				// Log raw ResultCode for debugging
-				const char* ErrorStr = EOS_EResult_ToString(Context->ResultCode);
+				const char* ErrorStr = EOS_EResult_ToString(static_cast<EOS_EResult>(Context->ResultCode));
 				UE_LOG(LogTemp, Warning, TEXT("EOSKit: [CALLBACK] Raw ResultCode value: %d (0x%08X) = %s"), 
 					static_cast<int32>(Context->ResultCode), 
 					static_cast<uint32>(Context->ResultCode),
@@ -290,7 +288,7 @@ void UEOSCreateEOKSessionAsync::CreateSession()
 				bool bHasSessionId = !Context->SessionId.IsEmpty();
 				
 				// EOS_Success is 0, so check both ways
-				bool bIsSuccess = (Context->ResultCode == EOS_EResult::EOS_Success) || (Context->ResultCode == 0);
+				bool bIsSuccess = (Context->ResultCode == static_cast<int32>(EOS_EResult::EOS_Success)) || (Context->ResultCode == 0);
 				
 				// If we have a SessionId, treat it as success even if ResultCode says otherwise
 				// This handles cases where EOS creates the session but returns a warning code
@@ -324,13 +322,13 @@ void UEOSCreateEOKSessionAsync::CreateSession()
 									{
 										if (TSharedPtr<const FUniqueNetId> UniqueId = Identity->GetUniquePlayerId(0))
 										{
-											if (SessionPtr->RegisterPlayer(Context->SessionName, *UniqueId, false))
+											if (SessionPtr->RegisterPlayer(FName(*Context->SessionName), *UniqueId, false))
 											{
-												UE_LOG(LogTemp, Log, TEXT("EOSKit: Successfully registered local player in session '%s'"), *Context->SessionName.ToString());
+												UE_LOG(LogTemp, Log, TEXT("EOSKit: Successfully registered local player in session '%s'"), *Context->SessionName);
 											}
 											else
 											{
-												UE_LOG(LogTemp, Warning, TEXT("EOSKit: Failed to register local player in session '%s'"), *Context->SessionName.ToString());
+												UE_LOG(LogTemp, Warning, TEXT("EOSKit: Failed to register local player in session '%s'"), *Context->SessionName);
 											}
 										}
 										else

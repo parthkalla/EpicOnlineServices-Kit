@@ -9,10 +9,8 @@
 
 #if WITH_EOS_SDK
 #include "Windows/AllowWindowsPlatformTypes.h"
-#include "Windows/PreWindowsApi.h"
 #include "eos_sessions.h"
 #include "eos_sessions_types.h"
-#include "Windows/PostWindowsApi.h"
 #include "Windows/HideWindowsPlatformTypes.h"
 #endif
 
@@ -106,33 +104,34 @@ struct FEOSKit_Sessions_CreateSessionModificationOptions
 	{
 	}
 
-	EOS_Sessions_CreateSessionModificationOptions ToEosStruct()
+	EOS_Sessions_CreateSessionModificationOptions ToEosStruct() const
 	{
-		EOS_Sessions_CreateSessionModificationOptions EosStruct = {};
-		EosStruct.ApiVersion = EOS_SESSIONS_CREATESESSIONMODIFICATION_API_LATEST;
-		EosStruct.SessionName = TCHAR_TO_ANSI(*SessionName);
-		EosStruct.BucketId = TCHAR_TO_ANSI(*BucketId);
-		EosStruct.MaxPlayers = MaxPlayers;
-		EosStruct.LocalUserId = LocalUserId.GetValueAsEosType();
-		EosStruct.bPresenceEnabled = bPresenceEnabled ? EOS_TRUE : EOS_FALSE;
-		EosStruct.SessionId = SessionId.IsEmpty() ? nullptr : TCHAR_TO_ANSI(*SessionId);
-		EosStruct.bSanctionsEnabled = bSanctionsEnabled ? EOS_TRUE : EOS_FALSE;
-		EosStruct.AllowedPlatformIdsCount = AllowedPlatformIds.Num();
+		EOS_Sessions_CreateSessionModificationOptions EosOptions = {};
+		EosOptions.ApiVersion = EOS_SESSIONS_CREATESESSIONMODIFICATION_API_LATEST;
+		EosOptions.SessionName = TCHAR_TO_ANSI(*SessionName);
+		EosOptions.BucketId = TCHAR_TO_ANSI(*BucketId);
+		EosOptions.MaxPlayers = MaxPlayers;
+		EosOptions.LocalUserId = LocalUserId.GetValueAsEosType();
+		EosOptions.bPresenceEnabled = bPresenceEnabled ? EOS_TRUE : EOS_FALSE;
+		EosOptions.SessionId = SessionId.IsEmpty() ? nullptr : TCHAR_TO_ANSI(*SessionId);
+		EosOptions.bSanctionsEnabled = bSanctionsEnabled ? EOS_TRUE : EOS_FALSE;
+		EosOptions.AllowedPlatformIdsCount = AllowedPlatformIds.Num();
 		
 		if (AllowedPlatformIds.Num() > 0)
 		{
-			EosStruct.AllowedPlatformIds = new uint32_t[AllowedPlatformIds.Num()];
+			uint32_t* PlatformIdsArray = new uint32_t[AllowedPlatformIds.Num()];
 			for (int32 i = 0; i < AllowedPlatformIds.Num(); i++)
 			{
-				EosStruct.AllowedPlatformIds[i] = AllowedPlatformIds[i];
+				PlatformIdsArray[i] = AllowedPlatformIds[i];
 			}
+			EosOptions.AllowedPlatformIds = PlatformIdsArray;
 		}
 		else
 		{
-			EosStruct.AllowedPlatformIds = nullptr;
+			EosOptions.AllowedPlatformIds = nullptr;
 		}
 		
-		return EosStruct;
+		return EosOptions;
 	}
 };
 

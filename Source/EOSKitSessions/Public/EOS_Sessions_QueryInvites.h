@@ -18,7 +18,7 @@ class EOSKITSESSIONS_API UEOS_Sessions_QueryInvites : public UBlueprintAsyncActi
 public:
 	// Retrieve all existing invites for a single user
 	UFUNCTION(BlueprintCallable, Category = "EOSKit | SDK Functions | Sessions Interface", DisplayName = "EOS_Sessions_QueryInvites", meta = (BlueprintInternalUseOnly = "true"))
-	static UEOS_Sessions_QueryInvites* EOS_Sessions_QueryInvites(const FEOSKitProductUserId& LocalUserId);
+	static UEOS_Sessions_QueryInvites* EOK_Sessions_QueryInvites(const FEOSKitProductUserId& LocalUserId);
 
 	UPROPERTY(BlueprintAssignable, Category = "EOSKit | SDK Functions | Sessions Interface")
 	FEOSKit_OnQueryInvitesCallback OnCallback;

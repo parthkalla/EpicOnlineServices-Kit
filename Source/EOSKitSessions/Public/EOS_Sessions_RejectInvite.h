@@ -18,7 +18,7 @@ class EOSKITSESSIONS_API UEOS_Sessions_RejectInvite : public UBlueprintAsyncActi
 public:
 	// Reject an invite from another player
 	UFUNCTION(BlueprintCallable, Category = "EOSKit | SDK Functions | Sessions Interface", DisplayName = "EOS_Sessions_RejectInvite", meta = (BlueprintInternalUseOnly = "true"))
-	static UEOS_Sessions_RejectInvite* EOS_Sessions_RejectInvite(const FString& InviteId, const FEOSKitProductUserId& LocalUserId);
+	static UEOS_Sessions_RejectInvite* EOK_Sessions_RejectInvite(const FString& InviteId, const FEOSKitProductUserId& LocalUserId);
 
 	UPROPERTY(BlueprintAssignable, Category = "EOSKit | SDK Functions | Sessions Interface")
 	FEOSKit_OnRejectInviteCallback OnCallback;

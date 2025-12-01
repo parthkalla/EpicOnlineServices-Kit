@@ -5,15 +5,13 @@
 #include "Kismet/GameplayStatics.h"
 #if WITH_EOS_SDK
 #include "Windows/AllowWindowsPlatformTypes.h"
-#include "Windows/PreWindowsApi.h"
-#include "eos_platform.h"
+#include "eos_sdk.h"
 #include "eos_sessions.h"
-#include "Windows/PostWindowsApi.h"
 #include "Windows/HideWindowsPlatformTypes.h"
 #endif
 #include "Async/Async.h"
 
-UEOS_Sessions_EndSession* UEOS_Sessions_EndSession::EOS_Sessions_EndSession(const FString& SessionName)
+UEOS_Sessions_EndSession* UEOS_Sessions_EndSession::EOK_Sessions_EndSession(const FString& SessionName)
 {
 	UEOS_Sessions_EndSession* Node = NewObject<UEOS_Sessions_EndSession>();
 	Node->Var_SessionName = SessionName;
@@ -85,7 +83,7 @@ void UEOS_Sessions_EndSession::Activate()
 	EndSessionOptions.ApiVersion = EOS_SESSIONS_ENDSESSION_API_LATEST;
 	EndSessionOptions.SessionName = TCHAR_TO_ANSI(*Var_SessionName);
 
-	EOS_Sessions_EndSession(SessionsHandle, &EndSessionOptions, this, &UEOS_Sessions_EndSession::OnEndSessionCallback);
+	::EOS_Sessions_EndSession(SessionsHandle, &EndSessionOptions, this, &UEOS_Sessions_EndSession::OnEndSessionCallback);
 }
 
 void UEOS_Sessions_EndSession::OnEndSessionCallback(const EOS_Sessions_EndSessionCallbackInfo* Data)

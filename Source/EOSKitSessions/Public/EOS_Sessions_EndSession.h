@@ -18,7 +18,7 @@ class EOSKITSESSIONS_API UEOS_Sessions_EndSession : public UBlueprintAsyncAction
 public:
 	// Mark a session as ended
 	UFUNCTION(BlueprintCallable, Category = "EOSKit | SDK Functions | Sessions Interface", DisplayName = "EOS_Sessions_EndSession", meta = (BlueprintInternalUseOnly = "true"))
-	static UEOS_Sessions_EndSession* EOS_Sessions_EndSession(const FString& SessionName);
+	static UEOS_Sessions_EndSession* EOK_Sessions_EndSession(const FString& SessionName);
 
 	UPROPERTY(BlueprintAssignable, Category = "EOSKit | SDK Functions | Sessions Interface")
 	FEOSKit_OnEndSessionCallback OnCallback;

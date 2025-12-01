@@ -5,11 +5,9 @@
 #include "Kismet/GameplayStatics.h"
 #if WITH_EOS_SDK
 #include "Windows/AllowWindowsPlatformTypes.h"
-#include "Windows/PreWindowsApi.h"
-#include "eos_platform.h"
+#include "eos_sdk.h"
 #include "eos_presence.h"
 #include "eos_presence_types.h"
-#include "Windows/PostWindowsApi.h"
 #include "Windows/HideWindowsPlatformTypes.h"
 #endif
 #include "EOSKitSharedTypes.h"
@@ -121,7 +119,7 @@ FEOSKitNotificationId UEOSKitPresenceSubsystem::AddNotifyOnPresenceChanged(const
 
 	EOS_Presence_AddNotifyOnPresenceChangedOptions Options = {};
 	Options.ApiVersion = EOS_PRESENCE_ADDNOTIFYONPRESENCECHANGED_API_LATEST;
-	Options.LocalUserId = LocalUserId.GetValueAsEosType();
+	// Note: EOS_Presence_AddNotifyOnPresenceChangedOptions does not have LocalUserId - it uses the platform handle context
 
 	// TODO: Implement callback wrapper using TEOSKitGlobalCallback
 	// For now, return a placeholder

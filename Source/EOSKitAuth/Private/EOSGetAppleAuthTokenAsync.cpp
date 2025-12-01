@@ -73,7 +73,7 @@ void UEOSGetAppleAuthTokenAsync::Activate()
 }
 
 void UEOSGetAppleAuthTokenAsync::OnLoginComplete(
-	int32 LocalUserNum,
+	int32 LocalUserNum1,
 	bool bWasSuccessful,
 	const FUniqueNetId& UniqueNetId,
 	const FString& Error)
@@ -83,7 +83,7 @@ void UEOSGetAppleAuthTokenAsync::OnLoginComplete(
 	{
 		if (IOnlineIdentityPtr AppleIdentity = AppleOSS->GetIdentityInterface())
 		{
-			AppleIdentity->ClearOnLoginCompleteDelegate_Handle(LocalUserNum, LoginDelegateHandle);
+			AppleIdentity->ClearOnLoginCompleteDelegate_Handle(LocalUserNum1, LoginDelegateHandle);
 		}
 	}
 
@@ -94,7 +94,7 @@ void UEOSGetAppleAuthTokenAsync::OnLoginComplete(
 		{
 			if (IOnlineIdentityPtr AppleIdentity = AppleOSS->GetIdentityInterface())
 			{
-				FString AuthToken = AppleIdentity->GetAuthToken(LocalUserNum);
+				FString AuthToken = AppleIdentity->GetAuthToken(LocalUserNum1);
 				if (!AuthToken.IsEmpty())
 				{
 					UE_LOG(LogTemp, Log, TEXT("EOSGetAppleAuthTokenAsync: Apple auth token retrieved after login"));

@@ -65,8 +65,8 @@ void UEOSKitSimpleSubsystem::LoginWithDeviceID(const FString& DisplayName, const
 
 	StoredLoginCallback = Result;
 	StoredAsyncNode = LoginNode;
-	LoginNode->OnSuccess.AddDynamic(this, FName("OnLoginSuccess"));
-	LoginNode->OnFail.AddDynamic(this, FName("OnLoginFail"));
+	LoginNode->OnSuccess.AddDynamic(this, &UEOSKitSimpleSubsystem::OnLoginSuccess);
+	LoginNode->OnFail.AddDynamic(this, &UEOSKitSimpleSubsystem::OnLoginFail);
 
 	LoginNode->Activate();
 }
@@ -103,8 +103,8 @@ void UEOSKitSimpleSubsystem::LoginWithAccountPortal(const FEOSKit_Login_Callback
 
 	StoredLoginCallback = Result;
 	StoredAsyncNode = LoginNode;
-	LoginNode->OnSuccess.AddDynamic(this, FName("OnLoginSuccess"));
-	LoginNode->OnFail.AddDynamic(this, FName("OnLoginFail"));
+	LoginNode->OnSuccess.AddDynamic(this, &UEOSKitSimpleSubsystem::OnLoginSuccess);
+	LoginNode->OnFail.AddDynamic(this, &UEOSKitSimpleSubsystem::OnLoginFail);
 
 	LoginNode->Activate();
 }
@@ -141,8 +141,8 @@ void UEOSKitSimpleSubsystem::LoginWithPersistentAuth(const FEOSKit_Login_Callbac
 
 	StoredLoginCallback = Result;
 	StoredAsyncNode = LoginNode;
-	LoginNode->OnSuccess.AddDynamic(this, FName("OnLoginSuccess"));
-	LoginNode->OnFail.AddDynamic(this, FName("OnLoginFail"));
+	LoginNode->OnSuccess.AddDynamic(this, &UEOSKitSimpleSubsystem::OnLoginSuccess);
+	LoginNode->OnFail.AddDynamic(this, &UEOSKitSimpleSubsystem::OnLoginFail);
 
 	LoginNode->Activate();
 }
@@ -249,8 +249,8 @@ void UEOSKitSimpleSubsystem::CreateEOSSession(
 	StoredCreateSessionCallback = Result;
 	StoredSessionName = SessionName;
 	StoredAsyncNode = CreateSessionNode;
-	CreateSessionNode->OnSuccess.AddDynamic(this, FName("OnCreateSessionSuccess"));
-	CreateSessionNode->OnFail.AddDynamic(this, FName("OnCreateSessionFail"));
+	CreateSessionNode->OnSuccess.AddDynamic(this, &UEOSKitSimpleSubsystem::OnCreateSessionSuccess);
+	CreateSessionNode->OnFail.AddDynamic(this, &UEOSKitSimpleSubsystem::OnCreateSessionFail);
 
 	CreateSessionNode->Activate();
 }
@@ -323,8 +323,8 @@ void UEOSKitSimpleSubsystem::CreateEOSLobby(
 	StoredCreateLobbyCallback = Result;
 	StoredSessionName = SessionName;
 	StoredAsyncNode = CreateLobbyNode;
-	CreateLobbyNode->OnSuccess.AddDynamic(this, FName("OnCreateLobbySuccess"));
-	CreateLobbyNode->OnFail.AddDynamic(this, FName("OnCreateLobbyFail"));
+	CreateLobbyNode->OnSuccess.AddDynamic(this, &UEOSKitSimpleSubsystem::OnCreateLobbySuccess);
+	CreateLobbyNode->OnFail.AddDynamic(this, &UEOSKitSimpleSubsystem::OnCreateLobbyFail);
 
 	CreateLobbyNode->Activate();
 }

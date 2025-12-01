@@ -5,11 +5,9 @@
 #include "Kismet/GameplayStatics.h"
 #if WITH_EOS_SDK
 #include "Windows/AllowWindowsPlatformTypes.h"
-#include "Windows/PreWindowsApi.h"
-#include "eos_platform.h"
+#include "eos_sdk.h"
 #include "eos_stats.h"
 #include "eos_stats_types.h"
-#include "Windows/PostWindowsApi.h"
 #include "Windows/HideWindowsPlatformTypes.h"
 #endif
 #include "EOSKitSharedTypes.h"
@@ -251,20 +249,17 @@ EEOSResult UEOSKitStatsSubsystem::CopyStatByName(
 	return ConvertEOSResultToEEOSResult(Result);
 }
 
-void EOS_CALL UEOSKitStatsSubsystem::OnQueryStatsCompleteCallback(const void* Data)
+void EOS_CALL UEOSKitStatsSubsystem::OnQueryStatsCompleteCallback(const EOS_Stats_OnQueryStatsCompleteCallbackInfo* Data)
 {
-	const EOS_Stats_OnQueryStatsCompleteCallbackInfo* CallbackInfo =
-		static_cast<const EOS_Stats_OnQueryStatsCompleteCallbackInfo*>(Data);
-
-	if (!CallbackInfo || !CallbackInfo->ClientData)
+	if (!Data || !Data->ClientData)
 	{
 		return;
 	}
 
-	UEOSKitStatsSubsystem* Subsystem = static_cast<UEOSKitStatsSubsystem*>(CallbackInfo->ClientData);
-	EEOSResult Result = ConvertEOSResultToEEOSResult(CallbackInfo->ResultCode);
-	FEOSKitProductUserId LocalUserId(CallbackInfo->LocalUserId);
-	FEOSKitProductUserId TargetUserId(CallbackInfo->TargetUserId);
+	UEOSKitStatsSubsystem* Subsystem = static_cast<UEOSKitStatsSubsystem*>(Data->ClientData);
+	EEOSResult Result = ConvertEOSResultToEEOSResult(Data->ResultCode);
+	FEOSKitProductUserId LocalUserId(Data->LocalUserId);
+	FEOSKitProductUserId TargetUserId(Data->TargetUserId);
 
 	AsyncTask(ENamedThreads::GameThread, [Subsystem, Result, LocalUserId, TargetUserId]()
 	{
@@ -275,20 +270,17 @@ void EOS_CALL UEOSKitStatsSubsystem::OnQueryStatsCompleteCallback(const void* Da
 	});
 }
 
-void EOS_CALL UEOSKitStatsSubsystem::OnIngestStatCompleteCallback(const void* Data)
+void EOS_CALL UEOSKitStatsSubsystem::OnIngestStatCompleteCallback(const EOS_Stats_IngestStatCompleteCallbackInfo* Data)
 {
-	const EOS_Stats_IngestStatCompleteCallbackInfo* CallbackInfo =
-		static_cast<const EOS_Stats_IngestStatCompleteCallbackInfo*>(Data);
-
-	if (!CallbackInfo || !CallbackInfo->ClientData)
+	if (!Data || !Data->ClientData)
 	{
 		return;
 	}
 
-	UEOSKitStatsSubsystem* Subsystem = static_cast<UEOSKitStatsSubsystem*>(CallbackInfo->ClientData);
-	EEOSResult Result = ConvertEOSResultToEEOSResult(CallbackInfo->ResultCode);
-	FEOSKitProductUserId LocalUserId(CallbackInfo->LocalUserId);
-	FEOSKitProductUserId TargetUserId(CallbackInfo->TargetUserId);
+	UEOSKitStatsSubsystem* Subsystem = static_cast<UEOSKitStatsSubsystem*>(Data->ClientData);
+	EEOSResult Result = ConvertEOSResultToEEOSResult(Data->ResultCode);
+	FEOSKitProductUserId LocalUserId(Data->LocalUserId);
+	FEOSKitProductUserId TargetUserId(Data->TargetUserId);
 
 	AsyncTask(ENamedThreads::GameThread, [Subsystem, Result, LocalUserId, TargetUserId]()
 	{
