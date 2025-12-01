@@ -17,7 +17,6 @@ public class EOSKitWeb : ModuleRules
 				"JsonUtilities",
 				"EOSSDK",
 				"EOSKitShared",
-				"EOSKit"
 			}
 		);
 			

@@ -6,6 +6,7 @@ public class EOSKitStats : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
+		// Stats + Achievements + Leaderboards
 		PublicDependencyModuleNames.AddRange(new string[]
 		{
 			"Core",
@@ -16,13 +17,15 @@ public class EOSKitStats : ModuleRules
 			"EOSSDK",
 			"EOSKitShared",
 			"EOSKitAuth",
-			"EOSKit"
 		});
-		
+
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
 			"Sockets",
-			"NetCore"
+			"NetCore",
+			"Slate",
+			"SlateCore",
+			"Projects"
 		});
 	}
 }

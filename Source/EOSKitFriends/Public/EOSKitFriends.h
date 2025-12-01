@@ -2,7 +2,7 @@
 #include "CoreMinimal.h"
 #include "Modules/ModuleManager.h"
 
-class FEOSKitFriendsModule : public IModuleInterface
+class EOSKITFRIENDS_API FEOSKitFriendsModule : public IModuleInterface
 {
 public:
 	virtual void StartupModule() override;

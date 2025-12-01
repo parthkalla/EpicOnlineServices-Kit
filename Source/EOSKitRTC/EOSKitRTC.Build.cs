@@ -6,22 +6,30 @@ public class EOSKitRTC : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
+		// RTC + Voice
 		PublicDependencyModuleNames.AddRange(new string[]
 		{
 			"Core",
 			"CoreUObject",
 			"Engine",
+			"AudioMixer",
+			"SignalProcessing",
+			"VoiceChat",
 			"OnlineSubsystem",
 			"OnlineSubsystemUtils",
 			"EOSSDK",
 			"EOSKitShared",
-			"EOSKit"
 		});
-		
+
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
 			"Sockets",
-			"NetCore"
+			"NetCore",
+			"Projects",
+			"Json",
+			"JsonUtilities"
 		});
+
+		PublicDefinitions.Add("WITH_EOS_RTC=1");
 	}
 }

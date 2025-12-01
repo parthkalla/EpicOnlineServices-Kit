@@ -9,7 +9,7 @@
  * Online subsystem module class (EOSKit Implementation)
  * Code related to the loading of the EOSKit module
  */
-class FOnlineSubsystemEOSKitModule : public IModuleInterface
+class ONLINESUBSYSTEMEOSKIT_API FOnlineSubsystemEOSKitModule : public IModuleInterface
 {
 private:
 	/** Class responsible for creating instance(s) of the subsystem */

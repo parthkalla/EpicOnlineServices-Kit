@@ -6,6 +6,7 @@ public class EOSKitFriends : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
+		// Friends + Presence
 		PublicDependencyModuleNames.AddRange(new string[]
 		{
 			"Core",
@@ -18,7 +19,7 @@ public class EOSKitFriends : ModuleRules
 			"EOSKitSessions",
 			"EOSKit"
 		});
-		
+
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
 			"Sockets",

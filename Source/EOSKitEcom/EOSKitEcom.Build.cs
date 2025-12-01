@@ -6,6 +6,7 @@ public class EOSKitEcom : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
+		// Ecom + Sanctions
 		PublicDependencyModuleNames.AddRange(new string[]
 		{
 			"Core",
@@ -15,13 +16,14 @@ public class EOSKitEcom : ModuleRules
 			"OnlineSubsystemUtils",
 			"EOSSDK",
 			"EOSKitShared",
-			"EOSKit"
 		});
-		
+
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
 			"Sockets",
-			"NetCore"
+			"NetCore",
+			"Json",
+			"JsonUtilities"
 		});
 	}
 }

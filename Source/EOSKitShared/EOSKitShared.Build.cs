@@ -1,33 +1,48 @@
-// Copyright (C) 2024, All Rights Reserved.
-
 using UnrealBuildTool;
+using System.IO;
 
 public class EOSKitShared : ModuleRules
 {
-	public EOSKitShared(ReadOnlyTargetRules Target) : base(Target)
-	{
-		PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
-		
-		PublicDependencyModuleNames.AddRange(
-			new string[]
-			{
-				"Core",
-				"CoreUObject",
-				"Engine"
-			}
-		);
-			
-		PrivateDependencyModuleNames.AddRange(
-			new string[]
-			{
-				"Projects"
-			}
-		);
+    public EOSKitShared(ReadOnlyTargetRules Target) : base(Target)
+    {
+        PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
-		// Add EOSSDK dependency if available
-		PublicDependencyModuleNames.Add("EOSSDK");
-		
-		// WITH_EOS_SDK should be set by the EOSSDK module or build system
-		// Don't force it to 0 - let the build system determine if EOS SDK is available
-	}
+        PublicIncludePaths.AddRange(new string[]
+        {
+            Path.Combine(ModuleDirectory, "Public")
+        });
+
+        PrivateIncludePaths.AddRange(new string[]
+        {
+            Path.Combine(ModuleDirectory, "Private")
+        });
+
+        // Headers we include but don't want to link against (avoid circular module deps)
+        PrivateIncludePathModuleNames.AddRange(new string[]
+        {
+            "EOSKit",
+            "EOSKitAuth",
+            "EOSKitSessions"
+        });
+
+        PublicDependencyModuleNames.AddRange(new string[]
+        {
+            "Core",
+            "CoreUObject",
+            "Engine",
+            "Projects",
+            "EOSSDK",
+            "Json",
+            "JsonUtilities",
+            "OnlineSubsystem",
+            "OnlineSubsystemUtils",
+            "DeveloperSettings"
+        });
+
+        if (Target.bBuildEditor)
+        {
+            PrivateDependencyModuleNames.Add("UnrealEd");
+        }
+
+    }
 }

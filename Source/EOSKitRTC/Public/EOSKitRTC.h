@@ -2,7 +2,7 @@
 #include "CoreMinimal.h"
 #include "Modules/ModuleManager.h"
 
-class FEOSKitRTCModule : public IModuleInterface
+class EOSKITRTC_API FEOSKitRTCModule : public IModuleInterface
 {
 public:
 	virtual void StartupModule() override;

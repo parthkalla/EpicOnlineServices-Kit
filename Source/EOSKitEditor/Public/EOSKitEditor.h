@@ -17,7 +17,7 @@ class SWidget;
  * - EOS artifact importer
  * - SDK folder selectors
  */
-class FEOSKitEditorModule : public IModuleInterface
+class EOSKITEDITOR_API FEOSKitEditorModule : public IModuleInterface
 {
 public:
 	/** IModuleInterface implementation */

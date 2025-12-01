@@ -5,7 +5,7 @@
 #include "CoreMinimal.h"
 #include "Modules/ModuleManager.h"
 
-class FEOSKitSharedModule : public IModuleInterface
+class EOSKITSHARED_API FEOSKitSharedModule : public IModuleInterface
 {
 public:
 	/** IModuleInterface implementation */

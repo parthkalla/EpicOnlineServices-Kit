@@ -6,6 +6,7 @@ public class EOSKitAuth : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
+		// Auth + UserInfo + UI helpers
 		PublicDependencyModuleNames.AddRange(new string[]
 		{
 			"Core",
@@ -15,13 +16,16 @@ public class EOSKitAuth : ModuleRules
 			"OnlineSubsystemUtils",
 			"EOSSDK",
 			"EOSKitShared",
-			"EOSKit"
 		});
-		
+
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
 			"Sockets",
-			"NetCore"
+			"NetCore",
+			"Json",
+			"JsonUtilities",
+			"Slate",
+			"SlateCore"
 		});
 	}
 }

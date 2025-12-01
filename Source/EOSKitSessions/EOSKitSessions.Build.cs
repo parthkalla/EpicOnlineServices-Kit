@@ -6,6 +6,7 @@ public class EOSKitSessions : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
+		// Sessions + Lobbies + P2P
 		PublicDependencyModuleNames.AddRange(new string[]
 		{
 			"Core",
@@ -16,9 +17,8 @@ public class EOSKitSessions : ModuleRules
 			"EOSSDK",
 			"EOSKitShared",
 			"EOSKitAuth",
-			"EOSKit"
 		});
-		
+
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
 			"Sockets",
