@@ -4,11 +4,16 @@
 #include "EOSKitSubsystem.h"
 #include "IEOSSDKManager.h"
 #include "Kismet/GameplayStatics.h"
+#include "OnlineSubsystem.h"
+#include "Interfaces/OnlineIdentityInterface.h"
+#include "OnlineSubsystemTypes.h"
+#include "Misc/DateTime.h"
 #if WITH_EOS_SDK
 #include "Windows/AllowWindowsPlatformTypes.h"
 #include "eos_sdk.h"
 #include "eos_auth.h"
 #include "eos_connect.h"
+#include "eos_userinfo.h"
 #include "Windows/HideWindowsPlatformTypes.h"
 #endif
 
@@ -206,7 +211,7 @@ void EOS_CALL UEOSLoginUsingAuthInterface::OnConnectLoginComplete(const EOS_Conn
 	}
 
 	UEOSLoginUsingAuthInterface* Self = static_cast<UEOSLoginUsingAuthInterface*>(Data->ClientData);
-
+	
 	if (Data->ResultCode == EOS_EResult::EOS_Success)
 	{
 		// Convert IDs to strings
@@ -221,6 +226,126 @@ void EOS_CALL UEOSLoginUsingAuthInterface::OnConnectLoginComplete(const EOS_Conn
 
 		FString EpicId = UTF8_TO_TCHAR(EpicAccountIdStr);
 		FString ProductId = UTF8_TO_TCHAR(ProductUserIdStr);
+
+		// Query UserInfo to cache display name for GetPlayerNickname
+		// IMPORTANT: Wait for this to complete before triggering OnLoginComplete
+		if (UGameInstance* GameInstance = UGameplayStatics::GetGameInstance(Self->WorldContextObject))
+		{
+			if (UEOSKitSubsystem* EOSKitSubsystem = GameInstance->GetSubsystem<UEOSKitSubsystem>())
+			{
+				EOS_HUserInfo UserInfoHandle = EOSKitSubsystem->GetUserInfoHandle();
+				if (UserInfoHandle && Self->CachedEpicAccountId)
+				{
+					EOS_UserInfo_QueryUserInfoOptions QueryOptions = {};
+					QueryOptions.ApiVersion = EOS_USERINFO_QUERYUSERINFO_API_LATEST;
+					QueryOptions.LocalUserId = Self->CachedEpicAccountId;
+					QueryOptions.TargetUserId = Self->CachedEpicAccountId;
+					
+					// Capture context for the callback
+					struct FQueryUserInfoContext
+					{
+						UEOSLoginUsingAuthInterface* LoginNode;
+						FString EpicIdStr;
+						FString ProductIdStr;
+						EOS_HUserInfo UserInfoHandle;
+						EOS_EpicAccountId EpicAccountId;
+					};
+					
+					FQueryUserInfoContext* Context = new FQueryUserInfoContext();
+					Context->LoginNode = Self;
+					Context->EpicIdStr = EpicId;
+					Context->ProductIdStr = ProductId;
+					Context->UserInfoHandle = UserInfoHandle;
+					Context->EpicAccountId = Self->CachedEpicAccountId;
+					
+					// Add to root to prevent GC
+					Self->AddToRoot();
+					
+					EOS_UserInfo_QueryUserInfo(UserInfoHandle, &QueryOptions, Context,
+						[](const EOS_UserInfo_QueryUserInfoCallbackInfo* QueryData)
+						{
+							FQueryUserInfoContext* Ctx = static_cast<FQueryUserInfoContext*>(QueryData->ClientData);
+							FString DisplayName;
+							
+							if (QueryData->ResultCode == EOS_EResult::EOS_Success && Ctx)
+							{
+								// Copy UserInfo to get DisplayName
+								EOS_UserInfo_CopyUserInfoOptions CopyOptions = {};
+								CopyOptions.ApiVersion = EOS_USERINFO_COPYUSERINFO_API_LATEST;
+								CopyOptions.LocalUserId = Ctx->EpicAccountId;
+								CopyOptions.TargetUserId = Ctx->EpicAccountId;
+								
+								EOS_UserInfo* UserInfo = nullptr;
+								EOS_EResult CopyResult = EOS_UserInfo_CopyUserInfo(Ctx->UserInfoHandle, &CopyOptions, &UserInfo);
+								
+								if (CopyResult == EOS_EResult::EOS_Success && UserInfo)
+								{
+									DisplayName = UTF8_TO_TCHAR(UserInfo->DisplayName);
+									EOS_UserInfo_Release(UserInfo);
+									
+									UE_LOG(LogTemp, Log, TEXT("EOSKit: ✅ UserInfo retrieved - DisplayName: %s"), *DisplayName);
+									
+									// Store DisplayName in OnlineIdentity for GetPlayerNickname
+									if (const IOnlineSubsystem* Subsystem = IOnlineSubsystem::Get())
+									{
+										if (IOnlineIdentityPtr Identity = Subsystem->GetIdentityInterface())
+										{
+											// Trigger with DisplayName as the "Error" field temporarily to pass it through
+											// We'll extract it in OnLoginCompleteInternal
+											FString TempData = FString::Printf(TEXT("DISPLAYNAME:%s"), *DisplayName);
+											Identity->TriggerOnLoginCompleteDelegates(0, true, *FUniqueNetIdString::Create(Ctx->ProductIdStr, FName(TEXT("EOS"))), TempData);
+										}
+									}
+								}
+								else
+								{
+									UE_LOG(LogTemp, Warning, TEXT("EOSKit: Failed to copy UserInfo: %s"), 
+										UTF8_TO_TCHAR(EOS_EResult_ToString(CopyResult)));
+								}
+							}
+							else
+							{
+								UE_LOG(LogTemp, Warning, TEXT("EOSKit: Failed to query UserInfo: %s"), 
+									UTF8_TO_TCHAR(EOS_EResult_ToString(QueryData->ResultCode)));
+							}
+							
+							// Now trigger login complete (UserInfo is cached)
+							if (Ctx && Ctx->LoginNode)
+							{
+								// If we didn't get DisplayName via Identity delegate, trigger it normally
+								if (DisplayName.IsEmpty())
+								{
+									if (const IOnlineSubsystem* Subsystem = IOnlineSubsystem::Get())
+									{
+										if (const IOnlineIdentityPtr Identity = Subsystem->GetIdentityInterface())
+										{
+											Identity->TriggerOnLoginCompleteDelegates(0, true, *FUniqueNetIdString::Create(Ctx->ProductIdStr, FName(TEXT("EOS"))), TEXT(""));
+										}
+									}
+								}
+								
+								Ctx->LoginNode->OnSuccess.Broadcast(Ctx->EpicIdStr, Ctx->ProductIdStr, TEXT(""));
+								Ctx->LoginNode->RemoveFromRoot();
+								Ctx->LoginNode->SetReadyToDestroy();
+							}
+							
+							delete Ctx;
+						});
+					
+					// Return early - callback will handle completion
+					return;
+				}
+			}
+		}
+
+		// Fallback if UserInfo query couldn't be started
+		if (const IOnlineSubsystem* Subsystem = IOnlineSubsystem::Get())
+		{
+			if (const IOnlineIdentityPtr Identity = Subsystem->GetIdentityInterface())
+			{
+				Identity->TriggerOnLoginCompleteDelegates(0, true, *FUniqueNetIdString::Create(ProductId, FName(TEXT("EOS"))), TEXT(""));
+			}
+		}
 
 		Self->OnSuccess.Broadcast(EpicId, ProductId, TEXT(""));
 		Self->SetReadyToDestroy();
@@ -291,6 +416,41 @@ void EOS_CALL UEOSLoginUsingAuthInterface::OnCreateUserComplete(const EOS_Connec
 		FString EpicId = UTF8_TO_TCHAR(EpicAccountIdStr);
 		FString ProductId = UTF8_TO_TCHAR(ProductUserIdStr);
 
+		// Query UserInfo to cache display name for GetPlayerNickname
+		if (UGameInstance* GameInstance = UGameplayStatics::GetGameInstance(Self->WorldContextObject))
+		{
+			if (UEOSKitSubsystem* EOSKitSubsystem = GameInstance->GetSubsystem<UEOSKitSubsystem>())
+			{
+				EOS_HUserInfo UserInfoHandle = EOSKitSubsystem->GetUserInfoHandle();
+				if (UserInfoHandle && Self->CachedEpicAccountId)
+				{
+					EOS_UserInfo_QueryUserInfoOptions QueryOptions = {};
+					QueryOptions.ApiVersion = EOS_USERINFO_QUERYUSERINFO_API_LATEST;
+					QueryOptions.LocalUserId = Self->CachedEpicAccountId;
+					QueryOptions.TargetUserId = Self->CachedEpicAccountId;
+					
+					EOS_UserInfo_QueryUserInfo(UserInfoHandle, &QueryOptions, nullptr,
+						[](const EOS_UserInfo_QueryUserInfoCallbackInfo* QueryData)
+						{
+							if (QueryData->ResultCode == EOS_EResult::EOS_Success)
+							{
+								UE_LOG(LogTemp, Log, TEXT("EOSKit: ✅ UserInfo queried - display name now cached"));
+							}
+						});
+				}
+			}
+		}
+
+		// Notify OnlineSubsystem that login succeeded
+		if (const IOnlineSubsystem* Subsystem = IOnlineSubsystem::Get())
+		{
+			if (const IOnlineIdentityPtr Identity = Subsystem->GetIdentityInterface())
+			{
+				// Trigger OnLoginComplete delegate so OnlineIdentity knows user is logged in
+				Identity->TriggerOnLoginCompleteDelegates(0, true, *FUniqueNetIdString::Create(ProductId, FName(TEXT("EOS"))), TEXT(""));
+			}
+		}
+
 		Self->OnSuccess.Broadcast(EpicId, ProductId, TEXT(""));
 		Self->SetReadyToDestroy();
 	}
@@ -308,7 +468,7 @@ void EOS_CALL UEOSLoginUsingAuthInterface::OnCreateUserComplete(const EOS_Connec
 
 UEOSLoginUsingConnectInterface* UEOSLoginUsingConnectInterface::LoginUsingConnectInterface(
 	UObject* WorldContextObject,
-	FString LoginMethod,
+	EEOSKitExternalCredentialType LoginMethod,
 	FString DisplayName,
 	FString Token)
 {
@@ -353,18 +513,70 @@ void UEOSLoginUsingConnectInterface::Activate()
 		return;
 	}
 
-	// Setup Connect credentials (default to Device ID)
+	// Setup Connect credentials based on login method
 	EOS_Connect_Credentials ConnectCredentials = {};
 	ConnectCredentials.ApiVersion = EOS_CONNECT_CREDENTIALS_API_LATEST;
-	ConnectCredentials.Type = EOS_EExternalCredentialType::EOS_ECT_DEVICEID_ACCESS_TOKEN;
+	
+	// Convert enum to EOS credential type
+	switch (LoginMethod)
+	{
+	case EEOSKitExternalCredentialType::DeviceID:
+		ConnectCredentials.Type = EOS_EExternalCredentialType::EOS_ECT_DEVICEID_ACCESS_TOKEN;
+		ConnectCredentials.Token = nullptr; // Device ID doesn't use token
+		break;
+	case EEOSKitExternalCredentialType::Epic:
+		ConnectCredentials.Type = EOS_EExternalCredentialType::EOS_ECT_EPIC;
+		break;
+	case EEOSKitExternalCredentialType::Steam:
+		ConnectCredentials.Type = EOS_EExternalCredentialType::EOS_ECT_STEAM_APP_TICKET;
+		break;
+	case EEOSKitExternalCredentialType::PSN:
+		ConnectCredentials.Type = EOS_EExternalCredentialType::EOS_ECT_PSN_ID_TOKEN;
+		break;
+	case EEOSKitExternalCredentialType::XBL:
+		ConnectCredentials.Type = EOS_EExternalCredentialType::EOS_ECT_XBL_XSTS_TOKEN;
+		break;
+	case EEOSKitExternalCredentialType::Discord:
+		ConnectCredentials.Type = EOS_EExternalCredentialType::EOS_ECT_DISCORD_ACCESS_TOKEN;
+		break;
+	case EEOSKitExternalCredentialType::Nintendo:
+		ConnectCredentials.Type = EOS_EExternalCredentialType::EOS_ECT_NINTENDO_ID_TOKEN;
+		break;
+	case EEOSKitExternalCredentialType::Apple:
+		ConnectCredentials.Type = EOS_EExternalCredentialType::EOS_ECT_APPLE_ID_TOKEN;
+		break;
+	case EEOSKitExternalCredentialType::Google:
+		ConnectCredentials.Type = EOS_EExternalCredentialType::EOS_ECT_GOOGLE_ID_TOKEN;
+		break;
+	case EEOSKitExternalCredentialType::Oculus:
+		ConnectCredentials.Type = EOS_EExternalCredentialType::EOS_ECT_OCULUS_USERID_NONCE;
+		break;
+	case EEOSKitExternalCredentialType::OpenID:
+		ConnectCredentials.Type = EOS_EExternalCredentialType::EOS_ECT_OPENID_ACCESS_TOKEN;
+		break;
+	default:
+		ConnectCredentials.Type = EOS_EExternalCredentialType::EOS_ECT_DEVICEID_ACCESS_TOKEN;
+		ConnectCredentials.Token = nullptr;
+		break;
+	}
 
-	FTCHARToUTF8 TokenConverter(*Token);
-	ConnectCredentials.Token = Token.IsEmpty() ? nullptr : TokenConverter.Get();
+	UE_LOG(LogTemp, Log, TEXT("EOSKit: Connect Login - Method: %d, DisplayName: %s"), (int32)LoginMethod, *DisplayName);
+
+	// Setup UserLoginInfo with persistent buffer for DisplayName
+	EOS_Connect_UserLoginInfo UserLoginInfo = {};
+	UserLoginInfo.ApiVersion = EOS_CONNECT_USERLOGININFO_API_LATEST;
+	
+	// Store DisplayName in persistent buffer
+	FString DisplayNameToUse = DisplayName.IsEmpty() ? TEXT("Player") : DisplayName;
+	DisplayNameAnsi.SetNumUninitialized(DisplayNameToUse.Len() + 1);
+	FCStringAnsi::Strcpy((char*)DisplayNameAnsi.GetData(), DisplayNameAnsi.Num(), TCHAR_TO_UTF8(*DisplayNameToUse));
+	UserLoginInfo.DisplayName = (char*)DisplayNameAnsi.GetData();
 
 	// Setup Connect login options
 	EOS_Connect_LoginOptions ConnectLoginOptions = {};
 	ConnectLoginOptions.ApiVersion = EOS_CONNECT_LOGIN_API_LATEST;
 	ConnectLoginOptions.Credentials = &ConnectCredentials;
+	ConnectLoginOptions.UserLoginInfo = &UserLoginInfo;
 
 	// Start Connect login
 	EOS_Connect_Login(ConnectHandle, &ConnectLoginOptions, this, &UEOSLoginUsingConnectInterface::OnConnectLoginComplete);
@@ -391,9 +603,13 @@ void EOS_CALL UEOSLoginUsingConnectInterface::OnConnectLoginComplete(const EOS_C
 		Self->OnSuccess.Broadcast(TEXT(""), ProductId, TEXT(""));
 		Self->SetReadyToDestroy();
 	}
-	else if (Data->ResultCode == EOS_EResult::EOS_InvalidUser)
+	else if (Data->ResultCode == EOS_EResult::EOS_InvalidUser || Data->ResultCode == EOS_EResult::EOS_NotFound)
 	{
 		// Need to create a device ID first
+		// EOS_InvalidUser: Device ID exists but is invalid
+		// EOS_NotFound: Device ID doesn't exist (common in packaged builds on new PCs)
+		UE_LOG(LogTemp, Log, TEXT("EOSKit: Device ID not found or invalid (%s), creating new one"), 
+			UTF8_TO_TCHAR(EOS_EResult_ToString(Data->ResultCode)));
 		if (!Self->WorldContextObject)
 		{
 			Self->OnFail.Broadcast(TEXT(""), TEXT(""), TEXT("Invalid World Context"));
@@ -419,14 +635,62 @@ void EOS_CALL UEOSLoginUsingConnectInterface::OnConnectLoginComplete(const EOS_C
 
 		EOS_HConnect ConnectHandle = EOS_Platform_GetConnectInterface(EOSSubsystem->GetPlatformHandle());
 
-		// Create device ID
-		EOS_Connect_CreateDeviceIdOptions CreateDeviceIdOptions = {};
-		CreateDeviceIdOptions.ApiVersion = EOS_CONNECT_CREATEDEVICEID_API_LATEST;
+		// CRITICAL: Delete existing Device ID first to ensure unique ProductUserId per login
+		// This is necessary for testing multiple players on the same PC
+		EOS_Connect_DeleteDeviceIdOptions DeleteOptions = {};
+		DeleteOptions.ApiVersion = EOS_CONNECT_DELETEDEVICEID_API_LATEST;
 		
-		FTCHARToUTF8 DeviceModelConverter(TEXT("PC"));
-		CreateDeviceIdOptions.DeviceModel = DeviceModelConverter.Get();
-
-		EOS_Connect_CreateDeviceId(ConnectHandle, &CreateDeviceIdOptions, Self, &UEOSLoginUsingConnectInterface::OnCreateDeviceIdComplete);
+		// Delete first, then create in the callback
+		EOS_Connect_DeleteDeviceId(ConnectHandle, &DeleteOptions, Self,
+			[](const EOS_Connect_DeleteDeviceIdCallbackInfo* DeleteData)
+			{
+				if (!DeleteData || !DeleteData->ClientData) return;
+				
+				UEOSLoginUsingConnectInterface* LoginNode = static_cast<UEOSLoginUsingConnectInterface*>(DeleteData->ClientData);
+				
+				// Log result (success or "not found" both mean we can proceed)
+				if (DeleteData->ResultCode == EOS_EResult::EOS_Success)
+				{
+					UE_LOG(LogTemp, Log, TEXT("EOSKit: Deleted existing Device ID"));
+				}
+				else if (DeleteData->ResultCode == EOS_EResult::EOS_NotFound)
+				{
+					UE_LOG(LogTemp, Log, TEXT("EOSKit: No existing Device ID to delete"));
+				}
+				else
+				{
+					UE_LOG(LogTemp, Warning, TEXT("EOSKit: DeleteDeviceId returned: %s"), 
+						UTF8_TO_TCHAR(EOS_EResult_ToString(DeleteData->ResultCode)));
+				}
+				
+				// Now create a new Device ID with unique DeviceModel
+				UGameInstance* GI = UGameplayStatics::GetGameInstance(LoginNode->WorldContextObject);
+				if (!GI) return;
+				
+				UEOSKitSubsystem* Subsystem = GI->GetSubsystem<UEOSKitSubsystem>();
+				if (!Subsystem) return;
+				
+				EOS_HConnect Connect = EOS_Platform_GetConnectInterface(Subsystem->GetPlatformHandle());
+				if (!Connect) return;
+				
+				// Create device ID with persistent buffer
+				EOS_Connect_CreateDeviceIdOptions CreateDeviceIdOptions = {};
+				CreateDeviceIdOptions.ApiVersion = EOS_CONNECT_CREATEDEVICEID_API_LATEST;
+				
+				// Use a timestamp + random to ensure uniqueness
+				FString UniqueId = FString::Printf(TEXT("%lld_%d"), FDateTime::Now().GetTicks(), FMath::Rand());
+				FString DeviceModel = LoginNode->DisplayName.IsEmpty() 
+					? FString::Printf(TEXT("PC_Player_%s"), *UniqueId)
+					: FString::Printf(TEXT("PC_%s_%s"), *LoginNode->DisplayName, *UniqueId);
+				
+				LoginNode->DeviceModelAnsi.SetNumUninitialized(DeviceModel.Len() + 1);
+				FCStringAnsi::Strcpy((char*)LoginNode->DeviceModelAnsi.GetData(), LoginNode->DeviceModelAnsi.Num(), TCHAR_TO_UTF8(*DeviceModel));
+				CreateDeviceIdOptions.DeviceModel = (char*)LoginNode->DeviceModelAnsi.GetData();
+				
+				UE_LOG(LogTemp, Warning, TEXT("EOSKit: Creating NEW Device ID with unique DeviceModel: %s"), *DeviceModel);
+				
+				EOS_Connect_CreateDeviceId(Connect, &CreateDeviceIdOptions, LoginNode, &UEOSLoginUsingConnectInterface::OnCreateDeviceIdComplete);
+			});
 	}
 	else
 	{

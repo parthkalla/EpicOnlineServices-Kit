@@ -7,6 +7,17 @@
 #include "Interfaces/OnlineSessionInterface.h"
 #include "Interfaces/OnlineExternalUIInterface.h"
 #include "Kismet/GameplayStatics.h"
+#include "Engine/World.h"
+#include "GameFramework/PlayerController.h"
+#include "Engine/Engine.h"
+#include "TimerManager.h"
+
+#if WITH_EOS_SDK
+	#include "eos_sdk.h"
+	#include "eos_sessions.h"
+	#include "eos_sessions_types.h"
+	#include "eos_common.h"
+#endif
 
 void UEOSKitGameInstanceSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
@@ -14,11 +25,73 @@ void UEOSKitGameInstanceSubsystem::Initialize(FSubsystemCollectionBase& Collecti
 	
 	bIsInitialized = true;
 	
-	UE_LOG(LogTemp, Log, TEXT("EOSKit: Game Instance Subsystem Initialized"));
+	// Listen for level changes to auto-register players in active sessions
+	WorldInitDelegateHandle = FWorldDelegates::OnPostWorldInitialization.AddUObject(this, &UEOSKitGameInstanceSubsystem::OnWorldInitialized);
+	
+	// Register for standalone game shutdown (works in packaged builds)
+	OnExitDelegateHandle = FCoreDelegates::OnExit.AddUObject(this, &UEOSKitGameInstanceSubsystem::OnStandaloneGameShutdown);
+	
+	UE_LOG(LogTemp, Log, TEXT("EOSKit: Game Instance Subsystem Initialized (Standalone mode cleanup registered)"));
+}
+
+void UEOSKitGameInstanceSubsystem::OnWorldInitialized(UWorld* World, UWorld::InitializationValues IVS)
+{
+	// DISABLED: Auto-registration causes 403 errors with P2P policy
+	// For P2P sessions, EOS automatically registers the host when StartSession is called
+	// Manual RegisterPlayer calls fail with P2P policy (missing matchmaking:managePlayers permission)
+	//
+	// If you're using Matchmaking policy (not P2P), you can re-enable this:
+	/*
+	if (World && World->GetNetMode() != NM_DedicatedServer)
+	{
+		FTimerHandle TimerHandle;
+		World->GetTimerManager().SetTimer(TimerHandle, [World]()
+		{
+			if (const IOnlineSubsystem* Subsystem = Online::GetSubsystem(World))
+			{
+				if (const IOnlineSessionPtr SessionInterface = Subsystem->GetSessionInterface())
+				{
+					if (const IOnlineIdentityPtr Identity = Subsystem->GetIdentityInterface())
+					{
+						TArray<FName> SessionNames = { 
+							NAME_GameSession, 
+							NAME_PartySession
+						};
+						
+						for (const FName& SessionName : SessionNames)
+						{
+							if (FNamedOnlineSession* Session = SessionInterface->GetNamedSession(SessionName))
+							{
+								if (TSharedPtr<const FUniqueNetId> UniqueId = Identity->GetUniquePlayerId(0))
+								{
+									SessionInterface->RegisterPlayer(SessionName, *UniqueId, false);
+								}
+							}
+						}
+					}
+				}
+			}
+		}, 0.1f, false);
+	}
+	*/
 }
 
 void UEOSKitGameInstanceSubsystem::Deinitialize()
 {
+	// Remove world initialization delegate
+	if (WorldInitDelegateHandle.IsValid())
+	{
+		FWorldDelegates::OnPostWorldInitialization.Remove(WorldInitDelegateHandle);
+		WorldInitDelegateHandle.Reset();
+	}
+	
+	// Remove standalone exit delegate
+	if (OnExitDelegateHandle.IsValid())
+	{
+		FCoreDelegates::OnExit.Remove(OnExitDelegateHandle);
+		OnExitDelegateHandle.Reset();
+	}
+	
 	bIsInitialized = false;
 	
 	UE_LOG(LogTemp, Log, TEXT("EOSKit: Game Instance Subsystem Deinitialized"));
@@ -29,18 +102,6 @@ void UEOSKitGameInstanceSubsystem::Deinitialize()
 // ========================================
 // User Information
 // ========================================
-
-FString UEOSKitGameInstanceSubsystem::GetPlayerNickname(int32 LocalUserNum)
-{
-	if (const IOnlineSubsystem* Subsystem = Online::GetSubsystem(nullptr))
-	{
-		if (const IOnlineIdentityPtr Identity = Subsystem->GetIdentityInterface())
-		{
-			return Identity->GetPlayerNickname(LocalUserNum);
-		}
-	}
-	return FString();
-}
 
 bool UEOSKitGameInstanceSubsystem::IsPlayerLoggedIn(int32 LocalUserNum)
 {
@@ -272,4 +333,132 @@ bool UEOSKitGameInstanceSubsystem::IsEOSKitInitialized()
 	}
 	
 	return false;
+}
+
+int32 UEOSKitGameInstanceSubsystem::DestroyAllActiveSessions()
+{
+	UE_LOG(LogTemp, Warning, TEXT("EOSKit: Manually destroying all active sessions..."));
+	
+	int32 DestroyedCount = 0;
+	
+	if (const IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld()))
+	{
+		if (const IOnlineSessionPtr SessionInterface = Subsystem->GetSessionInterface())
+		{
+			// Check all common session names
+			TArray<FName> SessionNamesToCheck = { 
+				NAME_GameSession, 
+				NAME_PartySession,
+				FName(TEXT("Modified_EOS_Session")),
+				FName(TEXT("Modified_EOS_Lobby")),
+				FName(TEXT("test")),
+				FName(TEXT("Sessions")),
+				FName(TEXT("Session")),
+				FName(TEXT("Lobby"))
+			};
+			
+			for (const FName& SessionName : SessionNamesToCheck)
+			{
+				if (FNamedOnlineSession* Session = SessionInterface->GetNamedSession(SessionName))
+				{
+					UE_LOG(LogTemp, Warning, TEXT("EOSKit: Destroying session '%s'"), *SessionName.ToString());
+					
+					// End session first if it's started
+					if (Session->SessionState == EOnlineSessionState::InProgress)
+					{
+						SessionInterface->EndSession(SessionName);
+					}
+					
+					// Destroy the session
+					SessionInterface->DestroySession(SessionName);
+					DestroyedCount++;
+				}
+			}
+		}
+	}
+	
+	UE_LOG(LogTemp, Warning, TEXT("EOSKit: ✅ Destroyed %d session(s)"), DestroyedCount);
+	return DestroyedCount;
+}
+
+void UEOSKitGameInstanceSubsystem::OnStandaloneGameShutdown()
+{
+	UE_LOG(LogTemp, Warning, TEXT("EOSKit: ========================================"));
+	UE_LOG(LogTemp, Warning, TEXT("EOSKit: STANDALONE GAME SHUTTING DOWN"));
+	UE_LOG(LogTemp, Warning, TEXT("EOSKit: Cleaning up all sessions..."));
+	UE_LOG(LogTemp, Warning, TEXT("EOSKit: ========================================"));
+	
+	// Destroy all active sessions
+	int32 DestroyedCount = DestroyAllActiveSessions();
+	
+#if WITH_EOS_SDK
+	// Also destroy EOS SDK sessions directly
+	if (UGameInstance* GameInstance = GetGameInstance())
+	{
+		if (UEOSKitSubsystem* EOSKitSubsystem = GameInstance->GetSubsystem<UEOSKitSubsystem>())
+		{
+			EOS_HPlatform PlatformHandle = EOSKitSubsystem->GetPlatformHandle();
+			if (PlatformHandle)
+			{
+				EOS_HSessions SessionsHandle = EOS_Platform_GetSessionsInterface(PlatformHandle);
+				
+				if (SessionsHandle)
+				{
+					// Try common session names that might be active
+					const char* SessionNamesToCheck[] = {
+						"Sessions",
+						"Modified_EOS_Session",
+						"Modified_EOS_Lobby",
+						"test",
+						"GameSession",
+						"PartySession",
+						"Lobby"
+					};
+					
+					int32 SDKSessionsDestroyed = 0;
+					
+					for (const char* SessionName : SessionNamesToCheck)
+					{
+						EOS_Sessions_CopyActiveSessionHandleOptions CopyOptions = {};
+						CopyOptions.ApiVersion = EOS_SESSIONS_COPYACTIVESESSIONHANDLE_API_LATEST;
+						CopyOptions.SessionName = SessionName;
+						
+						EOS_HActiveSession ActiveSessionHandle = nullptr;
+						EOS_EResult CopyResult = EOS_Sessions_CopyActiveSessionHandle(SessionsHandle, &CopyOptions, &ActiveSessionHandle);
+						
+						if (CopyResult == EOS_EResult::EOS_Success && ActiveSessionHandle)
+						{
+							UE_LOG(LogTemp, Warning, TEXT("EOSKit: Found active SDK session '%s', destroying..."), UTF8_TO_TCHAR(SessionName));
+							
+							// Destroy the session
+							EOS_Sessions_DestroySessionOptions DestroyOptions = {};
+							DestroyOptions.ApiVersion = EOS_SESSIONS_DESTROYSESSION_API_LATEST;
+							DestroyOptions.SessionName = SessionName;
+							
+							EOS_Sessions_DestroySession(SessionsHandle, &DestroyOptions, nullptr,
+								[](const EOS_Sessions_DestroySessionCallbackInfo* Data)
+								{
+									if (Data->ResultCode == EOS_EResult::EOS_Success)
+									{
+										UE_LOG(LogTemp, Log, TEXT("EOSKit: ✅ Destroyed SDK session"));
+									}
+								});
+							
+							EOS_ActiveSession_Release(ActiveSessionHandle);
+							SDKSessionsDestroyed++;
+						}
+					}
+					
+					if (SDKSessionsDestroyed > 0)
+					{
+						UE_LOG(LogTemp, Warning, TEXT("EOSKit: ✅ Destroyed %d SDK session(s)"), SDKSessionsDestroyed);
+					}
+				}
+			}
+		}
+	}
+#endif
+	
+	UE_LOG(LogTemp, Warning, TEXT("EOSKit: ✅ Standalone game cleanup complete"));
+	UE_LOG(LogTemp, Warning, TEXT("EOSKit: Game can now safely close"));
 }

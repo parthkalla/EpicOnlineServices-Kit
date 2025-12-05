@@ -223,6 +223,35 @@ bool UEOSKitAutoConfigurator::UpdateOnlineSubsystemConfig()
 		bConfigChanged = true;
 	}
 
+	// Ensure [/Script/OnlineSubsystemEOSKit.NetDriverEOS] section exists with bIsUsingP2PSockets=true
+	if (!EngineIniText.Contains(TEXT("[/Script/OnlineSubsystemEOSKit.NetDriverEOS]")))
+	{
+		EngineIniText += TEXT("\n[/Script/OnlineSubsystemEOSKit.NetDriverEOS]\nbIsUsingP2PSockets=true\n");
+		bConfigChanged = true;
+	}
+
+	// Ensure [/Script/OnlineSubsystemEOSKit.OnlineSessionEOSKit] section exists with P2P settings
+	if (!EngineIniText.Contains(TEXT("[/Script/OnlineSubsystemEOSKit.OnlineSessionEOSKit]")))
+	{
+		EngineIniText += TEXT("\n[/Script/OnlineSubsystemEOSKit.OnlineSessionEOSKit]\nbUseLobbies=false\nbUseP2PNetworking=true\n");
+		bConfigChanged = true;
+	}
+
+	// Ensure [/Script/Engine.GameEngine] section exists with NetDriverDefinitions
+	if (!EngineIniText.Contains(TEXT("+NetDriverDefinitions=(DefName=\"GameNetDriver\",DriverClassName=\"/Script/OnlineSubsystemEOSKit.NetDriverEOS\"")))
+	{
+		// Check if GameEngine section exists
+		if (!EngineIniText.Contains(TEXT("[/Script/Engine.GameEngine]")))
+		{
+			EngineIniText += TEXT("\n[/Script/Engine.GameEngine]\n");
+		}
+		
+		// Add NetDriverDefinitions if not present
+		FString NetDriverConfig = TEXT("+NetDriverDefinitions=(DefName=\"GameNetDriver\",DriverClassName=\"/Script/OnlineSubsystemEOSKit.NetDriverEOS\",DriverClassNameFallback=\"/Script/OnlineSubsystemUtils.IpNetDriver\")\n");
+		EngineIniText += NetDriverConfig;
+		bConfigChanged = true;
+	}
+
 	// Save if changed
 	if (bConfigChanged)
 	{

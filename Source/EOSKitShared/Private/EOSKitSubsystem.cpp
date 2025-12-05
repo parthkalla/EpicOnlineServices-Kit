@@ -30,6 +30,8 @@ typedef TSharedPtr<class IOnlineStoreV2, ESPMode::ThreadSafe> IOnlineStoreV2Ptr;
 #if WITH_EOS_SDK
 #include "eos_types.h"
 #include "eos_common.h"
+#include "eos_sdk.h"
+#include "eos_connect.h"
 #endif
 
 UEOSKitSubsystem::UEOSKitSubsystem()
@@ -44,6 +46,54 @@ UEOSKitSubsystem::UEOSKitSubsystem()
 			// For now, we'll handle it in JoinSession
 		}
 	}
+}
+
+void UEOSKitSubsystem::Deinitialize()
+{
+	UE_LOG(LogTemp, Warning, TEXT("EOSKit: Subsystem Deinitializing - cleaning up sessions..."));
+	
+	// Destroy all active sessions when subsystem is destroyed (host leaving/disconnecting)
+	if (const IOnlineSubsystem* SubsystemRef = IOnlineSubsystem::Get())
+	{
+		if (const IOnlineSessionPtr SessionPtrRef = SubsystemRef->GetSessionInterface())
+		{
+			// Check all common session names (IOnlineSession doesn't have GetAllSessions)
+			TArray<FName> SessionNamesToCheck = { 
+				NAME_GameSession, 
+				NAME_PartySession,
+				FName(TEXT("Modified_EOS_Session")),
+				FName(TEXT("Modified_EOS_Lobby")),
+				FName(TEXT("test")),
+				FName(TEXT("Sessions")),
+				FName(TEXT("Session")),
+				FName(TEXT("Lobby"))
+			};
+			
+			int32 DestroyedCount = 0;
+			
+			for (const FName& SessionName : SessionNamesToCheck)
+			{
+				if (FNamedOnlineSession* Session = SessionPtrRef->GetNamedSession(SessionName))
+				{
+					UE_LOG(LogTemp, Warning, TEXT("EOSKit: Destroying session '%s' on subsystem cleanup"), *SessionName.ToString());
+					
+					// End session first if it's started
+					if (Session->SessionState == EOnlineSessionState::InProgress)
+					{
+						SessionPtrRef->EndSession(SessionName);
+					}
+					
+					// Destroy the session
+					SessionPtrRef->DestroySession(SessionName);
+					DestroyedCount++;
+				}
+			}
+			
+			UE_LOG(LogTemp, Warning, TEXT("EOSKit: ✅ Destroyed %d session(s) on deinitialize"), DestroyedCount);
+		}
+	}
+	
+	Super::Deinitialize();
 }
 
 // ========================================
@@ -189,6 +239,15 @@ void UEOSKitSubsystem::CreateEOSSession(
 	{
 		if (IOnlineSessionPtr SessionPtrRef = SubsystemRef->GetSessionInterface())
 		{
+			// Check if a session with this name already exists
+			FName SessionFName = FName(*SessionName);
+			if (FNamedOnlineSession* ExistingSession = SessionPtrRef->GetNamedSession(SessionFName))
+			{
+				UE_LOG(LogTemp, Error, TEXT("EOSKit: Session '%s' already exists! Please destroy it first or use a different name."), *SessionName);
+				Result.ExecuteIfBound(false, SessionFName);
+				return;
+			}
+
 			FOnlineSessionSettings SessionCreationInfo;
 			SessionCreationInfo.bIsDedicated = bIsDedicatedServer;
 			SessionCreationInfo.bUsesPresence = true;
@@ -251,6 +310,15 @@ void UEOSKitSubsystem::CreateEOSLobby(
 	{
 		if (IOnlineSessionPtr SessionPtrRef = SubsystemRef->GetSessionInterface())
 		{
+			// Check if a lobby with this name already exists
+			FName SessionFName = FName(*SessionName);
+			if (FNamedOnlineSession* ExistingSession = SessionPtrRef->GetNamedSession(SessionFName))
+			{
+				UE_LOG(LogTemp, Error, TEXT("EOSKit: Lobby '%s' already exists! Please destroy it first or use a different name."), *SessionName);
+				Result.ExecuteIfBound(false, SessionFName);
+				return;
+			}
+
 			FOnlineSessionSettings SessionCreationInfo;
 			SessionCreationInfo.bIsDedicated = false;
 			SessionCreationInfo.bAllowInvites = bAllowInvites;
@@ -344,8 +412,24 @@ void UEOSKitSubsystem::DestroyEosSession(const FBP_EOSKit_DestroySession_Callbac
 	{
 		if (const IOnlineSessionPtr SessionPtrRef = SubsystemRef->GetSessionInterface())
 		{
-			SessionPtrRef->OnDestroySessionCompleteDelegates.AddUObject(this, &UEOSKitSubsystem::OnDestroySessionCompleted);
-			SessionPtrRef->DestroySession(SessionName);
+			// Check if session exists before trying to destroy it
+			if (FNamedOnlineSession* Session = SessionPtrRef->GetNamedSession(SessionName))
+			{
+				// End the session first if it's started
+				if (Session->SessionState == EOnlineSessionState::InProgress)
+				{
+					SessionPtrRef->EndSession(SessionName);
+					UE_LOG(LogTemp, Log, TEXT("EOSKit: Ended session '%s' before destroying"), *SessionName.ToString());
+				}
+
+				SessionPtrRef->OnDestroySessionCompleteDelegates.AddUObject(this, &UEOSKitSubsystem::OnDestroySessionCompleted);
+				SessionPtrRef->DestroySession(SessionName);
+			}
+			else
+			{
+				UE_LOG(LogTemp, Warning, TEXT("EOSKit: Session '%s' does not exist, cannot destroy"), *SessionName.ToString());
+				Result.ExecuteIfBound(false);
+			}
 		}
 		else
 		{
@@ -937,61 +1021,83 @@ void UEOSKitSubsystem::LoginCallback(int32 LocalUserNum, bool bWasSuccess, const
 
 void UEOSKitSubsystem::LogoutCallback(int32 LocalUserNum, bool bWasSuccess) const
 {
+	// Destroy all sessions when logging out (like EIK pattern)
+	if (bWasSuccess)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("EOSKit: Logout successful - destroying all sessions"));
+		
+		if (const IOnlineSubsystem* SubsystemRef = IOnlineSubsystem::Get())
+		{
+			if (const IOnlineSessionPtr SessionPtrRef = SubsystemRef->GetSessionInterface())
+			{
+				// Check all common session names (IOnlineSession doesn't have GetAllSessions)
+				TArray<FName> SessionNamesToCheck = { 
+					NAME_GameSession, 
+					NAME_PartySession,
+					FName(TEXT("Modified_EOS_Session")),
+					FName(TEXT("Modified_EOS_Lobby")),
+					FName(TEXT("test")),
+					FName(TEXT("Sessions")),
+					FName(TEXT("Session")),
+					FName(TEXT("Lobby"))
+				};
+				
+				int32 DestroyedCount = 0;
+				
+				for (const FName& SessionName : SessionNamesToCheck)
+				{
+					if (FNamedOnlineSession* Session = SessionPtrRef->GetNamedSession(SessionName))
+					{
+						UE_LOG(LogTemp, Warning, TEXT("EOSKit: Destroying session '%s' on logout"), *SessionName.ToString());
+						
+						// End session first if it's started
+						if (Session->SessionState == EOnlineSessionState::InProgress)
+						{
+							SessionPtrRef->EndSession(SessionName);
+						}
+						
+						// Destroy the session
+						SessionPtrRef->DestroySession(SessionName);
+						DestroyedCount++;
+					}
+				}
+				
+				UE_LOG(LogTemp, Warning, TEXT("EOSKit: ✅ Destroyed %d session(s) on logout"), DestroyedCount);
+			}
+		}
+	}
+	
 	LogoutCallbackBP.ExecuteIfBound(bWasSuccess);
 }
 
 void UEOSKitSubsystem::OnCreateSessionCompleted(FName SessionName, bool bWasSuccessful) const
 {
-	if (bWasSuccessful)
-	{
-		if (const IOnlineSubsystem* SubsystemRef = IOnlineSubsystem::Get())
-		{
-			if (const IOnlineSessionPtr SessionPtrRef = SubsystemRef->GetSessionInterface())
-			{
-				if (const IOnlineIdentityPtr IdentityPointerRef = SubsystemRef->GetIdentityInterface())
-				{
-					CreateSession_CallbackBP.ExecuteIfBound(bWasSuccessful, SessionName);
-				}
-			}
-			else
-			{
-				CreateSession_CallbackBP.ExecuteIfBound(false, SessionName);
-			}
-		}
-		else
-		{
-			CreateSession_CallbackBP.ExecuteIfBound(false, SessionName);
-		}
-	}
-	else
-	{
-		CreateSession_CallbackBP.ExecuteIfBound(false, SessionName);
-	}
+	// Note: This is only called when using the OnlineSubsystem interface directly
+	// Most users use the SDK async nodes which bypass this
+	CreateSession_CallbackBP.ExecuteIfBound(bWasSuccessful, SessionName);
 }
 
 void UEOSKitSubsystem::OnCreateLobbyCompleted(FName SessionName, bool bWasSuccessful) const
 {
 	if (bWasSuccessful)
 	{
+		// EIK DOES auto-register for lobbies (line 991 in EIK_Subsystem.cpp)
 		if (const IOnlineSubsystem* SubsystemRef = IOnlineSubsystem::Get())
 		{
 			if (const IOnlineSessionPtr SessionPtrRef = SubsystemRef->GetSessionInterface())
 			{
 				if (const IOnlineIdentityPtr IdentityPointerRef = SubsystemRef->GetIdentityInterface())
 				{
-					SessionPtrRef->RegisterPlayer(SessionName, *IdentityPointerRef->GetUniquePlayerId(0), false);
-					CreateLobby_CallbackBP.ExecuteIfBound(bWasSuccessful, SessionName);
+					if (TSharedPtr<const FUniqueNetId> UniqueId = IdentityPointerRef->GetUniquePlayerId(0))
+					{
+						bool bRegistered = SessionPtrRef->RegisterPlayer(SessionName, *UniqueId, false);
+						UE_LOG(LogTemp, Log, TEXT("EOSKit: Auto-registered host in lobby '%s': %s"), 
+							*SessionName.ToString(), bRegistered ? TEXT("✅ Success") : TEXT("❌ Failed"));
+					}
 				}
 			}
-			else
-			{
-				CreateLobby_CallbackBP.ExecuteIfBound(false, SessionName);
-			}
 		}
-		else
-		{
-			CreateLobby_CallbackBP.ExecuteIfBound(false, SessionName);
-		}
+		CreateLobby_CallbackBP.ExecuteIfBound(bWasSuccessful, SessionName);
 	}
 	else
 	{
@@ -1045,6 +1151,7 @@ void UEOSKitSubsystem::OnJoinSessionCompleted(FName SessionName, EOnJoinSessionC
 {
 	if (Result == EOnJoinSessionCompleteResult::Success)
 	{
+		// EIK does NOT auto-register on join - users must call RegisterPlayer manually
 		if (APlayerController* PlayerControllerRef = UGameplayStatics::GetPlayerController(GetWorld(), 0))
 		{
 			if (const IOnlineSubsystem* SubsystemRef = IOnlineSubsystem::Get())
@@ -1230,21 +1337,31 @@ EOS_HPlatform UEOSKitSubsystem::GetPlatformHandle() const
 EOS_ProductUserId UEOSKitSubsystem::GetProductUserId(int32 LocalUserNum) const
 {
 #if WITH_EOS_SDK
-	if (const IOnlineSubsystem* SubsystemRef = IOnlineSubsystem::Get())
+	// DO NOT call back into IOnlineIdentity - it will cause infinite recursion!
+	// Instead, query the Connect interface directly from the EOS platform handle
+	EOS_HPlatform PlatformHandle = GetPlatformHandle();
+	if (PlatformHandle)
 	{
-		if (const IOnlineIdentityPtr IdentityPtr = SubsystemRef->GetIdentityInterface())
+		EOS_HConnect ConnectHandle = EOS_Platform_GetConnectInterface(PlatformHandle);
+		if (ConnectHandle)
 		{
-			if (const TSharedPtr<const FUniqueNetId> UserId = IdentityPtr->GetUniquePlayerId(LocalUserNum))
-			{
-				// Convert FUniqueNetId to EOS_ProductUserId
-				// This is a simplified version - you may need to adjust based on your FUniqueNetId implementation
-				FString UserIdString = UserId->ToString();
-				if (!UserIdString.IsEmpty())
-				{
-					return EOS_ProductUserId_FromString(TCHAR_TO_UTF8(*UserIdString));
-				}
-			}
+			// Get the logged in ProductUserId for this local user
+			// Note: This assumes the user has logged in via Connect interface
+			// For a more robust implementation, you'd cache the ProductUserId during login
+			return EOS_Connect_GetLoggedInUserByIndex(ConnectHandle, LocalUserNum);
 		}
+	}
+#endif
+	return nullptr;
+}
+
+EOS_HUserInfo UEOSKitSubsystem::GetUserInfoHandle() const
+{
+#if WITH_EOS_SDK
+	EOS_HPlatform PlatformHandle = GetPlatformHandle();
+	if (PlatformHandle)
+	{
+		return EOS_Platform_GetUserInfoInterface(PlatformHandle);
 	}
 #endif
 	return nullptr;

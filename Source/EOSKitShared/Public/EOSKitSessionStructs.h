@@ -398,10 +398,16 @@ struct FEOSKitSessionFindResult
 	FString SessionName;
 
 	UPROPERTY(BlueprintReadOnly, Category = "EOSKit|Session")
+	FString SessionId;
+
+	UPROPERTY(BlueprintReadOnly, Category = "EOSKit|Session")
 	int32 CurrentNumberOfPlayers = 0;
 
 	UPROPERTY(BlueprintReadOnly, Category = "EOSKit|Session")
 	int32 MaxNumberOfPlayers = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "EOSKit|Session")
+	int32 Ping = 0;
 
 	UPROPERTY(BlueprintReadOnly, Category = "EOSKit|Session")
 	bool bIsDedicatedServer = false;
@@ -411,11 +417,16 @@ struct FEOSKitSessionFindResult
 
 	UPROPERTY(BlueprintReadOnly, Category = "EOSKit|Session")
 	FBlueprintSessionResult SessionResult;
+	
+	// Store the actual OnlineSessionSearchResult for joining
+	FOnlineSessionSearchResult OnlineResult;
 
 	FEOSKitSessionFindResult()
 		: SessionName(TEXT(""))
+		, SessionId(TEXT(""))
 		, CurrentNumberOfPlayers(0)
 		, MaxNumberOfPlayers(0)
+		, Ping(0)
 		, bIsDedicatedServer(false)
 	{
 	}

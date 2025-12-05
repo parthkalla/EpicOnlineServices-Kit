@@ -69,7 +69,7 @@ public:
 	
 	/** Automatically setup EIK on project startup */
 	UPROPERTY(Config, EditAnywhere, Category = "EOS Integration Kit Settings", meta = (DisplayName = "Automatically Setup EOK"))
-	bool bAutomaticallySetupEIK = true;
+	bool bAutomaticallySetupEIK = false;
 
 	/** Auto launch the Dev Auth tool for testing */
 	UPROPERTY(Config, EditAnywhere, Category = "EOS Integration Kit Settings", meta = (DisplayName = "Auto Launch Dev Tool"))
@@ -109,7 +109,7 @@ public:
 
 	/** Enable Basic Profile auth scope - allows access to basic user profile information */
 	UPROPERTY(Config, EditAnywhere, Category = "Login Settings|Auth Scope Flags", meta = (DisplayName = "Basic Profile"))
-	bool bAuthScope_BasicProfile = true;
+	bool bAuthScope_BasicProfile = false;
 
 	/** Enable Friends List auth scope - allows access to user's friends list */
 	UPROPERTY(Config, EditAnywhere, Category = "Login Settings|Auth Scope Flags", meta = (DisplayName = "Friends List"))
@@ -145,21 +145,21 @@ public:
 
 	/** Enable title storage features */
 	UPROPERTY(Config, EditAnywhere, Category = "Title Storage Settings", meta = (DisplayName = "Enable Title Storage"))
-	bool bEnableTitleStorage = true;
+	bool bEnableTitleStorage = false;
 
 	// ========== Overlay Settings ==========
 
 	/** Enable the EOS overlay */
 	UPROPERTY(Config, EditAnywhere, Category = "Overlay Settings", meta = (DisplayName = "Enable Overlay"))
-	bool bEnableOverlay = true;
+	bool bEnableOverlay = false;
 
 	/** Enable social overlay */
 	UPROPERTY(Config, EditAnywhere, Category = "Overlay Settings", meta = (DisplayName = "Enable Social Overlay", EditCondition = "bEnableOverlay"))
-	bool bEnableSocialOverlay = true;
+	bool bEnableSocialOverlay = false;
 
 	/** Enable editor overlay */
 	UPROPERTY(Config, EditAnywhere, Category = "Overlay Settings", meta = (DisplayName = "Enable Editor Overlay"))
-	bool bEnableEditorOverlay = true;
+	bool bEnableEditorOverlay = false;
 
 	/** Return level name for overlay */
 	UPROPERTY(Config, EditAnywhere, Category = "Overlay Settings", meta = (DisplayName = "Return Level Name"))
@@ -169,7 +169,7 @@ public:
 
 	/** Default artifact name to use */
 	UPROPERTY(Config, EditAnywhere, Category = "Artifact Settings", meta = (DisplayName = "Default Artifact Name"))
-	FString DefaultArtifactName = TEXT("SummaGrandeClient");
+	FString DefaultArtifactName;
 
 	/** Voice artifact name */
 	UPROPERTY(Config, EditAnywhere, Category = "Artifact Settings", meta = (DisplayName = "Voice Artifact Name"))
@@ -230,6 +230,9 @@ public:
 
 	/** Find the Settings for an artifact by name */
 	static bool GetSettingsForArtifact(const FString& ArtifactName, FEOSArtifact& OutSettings);
+
+	/** Read artifact settings directly from config files without requiring UObject initialization */
+	static bool GetSettingsForArtifactFromIni(const FString& ArtifactName, FEOSArtifact& OutSettings);
 
 	/** Get the active artifact based on current platform and configuration */
 	UFUNCTION(BlueprintCallable, Category = "EOSKit|Settings")

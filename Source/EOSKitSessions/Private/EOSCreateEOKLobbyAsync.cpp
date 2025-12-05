@@ -157,6 +157,13 @@ void UEOSCreateEOKLobbyAsync::CreateLobby()
 				return;
 			}
 
+			// Check if this is a retry notification - if so, don't process yet
+			if (Data->ResultCode == EOS_EResult::EOS_OperationWillRetry)
+			{
+				UE_LOG(LogTemp, Log, TEXT("EOSKit: CreateLobby - Operation will retry, waiting for final result..."));
+				return; // Don't delete Context, wait for the final callback
+			}
+
 			Context->ResultCode = static_cast<int32>(Data->ResultCode);
 			if (Data->LobbyId && strlen(Data->LobbyId) > 0)
 			{

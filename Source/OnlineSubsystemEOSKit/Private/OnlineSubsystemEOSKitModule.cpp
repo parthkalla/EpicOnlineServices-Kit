@@ -5,6 +5,7 @@
 #include "OnlineSubsystemNames.h"
 #include "OnlineSubsystemEOSKit.h"
 #include "EOSKitSettings.h"
+#include "NetDriverEOS.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Features/IModularFeature.h"
@@ -53,6 +54,25 @@ void FOnlineSubsystemEOSKitModule::StartupModule()
 	if (IsRunningCommandlet())
 	{
 		return;
+	}
+
+	// Force load the NetDriver class to ensure it's available when Unreal Engine tries to select it
+	// This ensures the class is registered before NetDriver selection happens
+	const UClass* NetDriverClass = UNetDriverEOS::StaticClass();
+	if (NetDriverClass)
+	{
+		// Log the exact script path so we can match it in DefaultEngine.ini
+		UE_LOG(
+			LogTemp,
+			Warning,
+			TEXT("EOSKit: NetDriverEOS class loaded and registered. PathName='%s', Name='%s'"),
+			*NetDriverClass->GetPathName(),
+			*NetDriverClass->GetName()
+		);
+	}
+	else
+	{
+		UE_LOG(LogTemp, Error, TEXT("EOSKit: Failed to load NetDriverEOS class!"));
 	}
 
 	EOSKitFactory = new FOnlineFactoryEOSKit();
@@ -146,12 +166,19 @@ void FOnlineSubsystemEOSKitModule::ConfigureOnlineSubsystemEOSKit()
 			bConfigChanged = true;
 		}
 
-		// Update [/Script/OnlineSubsystemEOSKit.NetDriverEOSKit] section
-		if (!EngineIniText.Contains(TEXT("\n[/Script/OnlineSubsystemEOSKit.NetDriverEOSKit]")))
+		// Update [/Script/OnlineSubsystemEOSKit.NetDriverEOS] section
+		if (!EngineIniText.Contains(TEXT("\n[/Script/OnlineSubsystemEOSKit.NetDriverEOS]")))
 		{
 			FString Comment = TEXT(";EOSKit Comment: You do not need to worry about this setting as we dynamically set it in Travel URL depending upon if we are using Listen Server or Dedicated Server\n");
 			EngineIniText += Comment;
-			EngineIniText += TEXT("[/Script/OnlineSubsystemEOSKit.NetDriverEOSKit]\nbIsUsingP2PSockets=true\n");
+			EngineIniText += TEXT("[/Script/OnlineSubsystemEOSKit.NetDriverEOS]\nbIsUsingP2PSockets=true\n");
+			bConfigChanged = true;
+		}
+
+		// Update [/Script/OnlineSubsystemEOSKit.OnlineSessionEOSKit] section
+		if (!EngineIniText.Contains(TEXT("[/Script/OnlineSubsystemEOSKit.OnlineSessionEOSKit]")))
+		{
+			EngineIniText += TEXT("\n[/Script/OnlineSubsystemEOSKit.OnlineSessionEOSKit]\nbUseLobbies=false\nbUseP2PNetworking=true\n");
 			bConfigChanged = true;
 		}
 
@@ -164,7 +191,7 @@ void FOnlineSubsystemEOSKitModule::ConfigureOnlineSubsystemEOSKit()
 
 			// Update NetDriverDefinitions in [/Script/Engine.Engine] section
 			FString NetDriverDefinitions = FString::Printf(
-				TEXT("!NetDriverDefinitions=ClearArray\n+NetDriverDefinitions=(DefName=\"GameNetDriver\",DriverClassName=\"/Script/OnlineSubsystemEOSKit.NetDriverEOSKit\",DriverClassNameFallback=\"OnlineSubsystemUtils.IpNetDriver\")\n+NetDriverDefinitions=(DefName=\"BeaconNetDriver\",DriverClassName=\"/Script/OnlineSubsystemEOSKit.NetDriverEOSKit\",DriverClassNameFallback=\"OnlineSubsystemUtils.IpNetDriver\")\n")
+				TEXT("!NetDriverDefinitions=ClearArray\n+NetDriverDefinitions=(DefName=\"GameNetDriver\",DriverClassName=\"/Script/OnlineSubsystemEOSKit.NetDriverEOS\",DriverClassNameFallback=\"OnlineSubsystemUtils.IpNetDriver\")\n+NetDriverDefinitions=(DefName=\"BeaconNetDriver\",DriverClassName=\"/Script/OnlineSubsystemEOSKit.NetDriverEOS\",DriverClassNameFallback=\"OnlineSubsystemUtils.IpNetDriver\")\n")
 			);
 			EngineIniText += NetDriverDefinitions;
 			
@@ -178,7 +205,7 @@ void FOnlineSubsystemEOSKitModule::ConfigureOnlineSubsystemEOSKit()
 
 			// Update NetDriverDefinitions in [/Script/Engine.GameEngine] section
 			FString NetDriverDefinitions = FString::Printf(
-				TEXT("!NetDriverDefinitions=ClearArray\n+NetDriverDefinitions=(DefName=\"GameNetDriver\",DriverClassName=\"OnlineSubsystemEOSKit.NetDriverEOSKit\",DriverClassNameFallback=\"OnlineSubsystemUtils.IpNetDriver\")\n")
+				TEXT("!NetDriverDefinitions=ClearArray\n+NetDriverDefinitions=(DefName=\"GameNetDriver\",DriverClassName=\"OnlineSubsystemEOSKit.NetDriverEOS\",DriverClassNameFallback=\"OnlineSubsystemUtils.IpNetDriver\")\n")
 			);
 			EngineIniText += NetDriverDefinitions;
 			

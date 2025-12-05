@@ -3,31 +3,9 @@
 #include "EOSCreateEOKSessionAsync.h"
 #include "EOSKitSubsystem.h"
 #include "Kismet/GameplayStatics.h"
-#if WITH_EOS_SDK
-#include "Windows/AllowWindowsPlatformTypes.h"
-#include "eos_sdk.h"
-#include "eos_sessions.h"
-#include "Windows/HideWindowsPlatformTypes.h"
-#endif
-#include "Async/Async.h"
 #include "OnlineSubsystem.h"
-#include "Interfaces/OnlineIdentityInterface.h"
 #include "Interfaces/OnlineSessionInterface.h"
-
-// Define a context struct to hold all data for the async operation
-struct FSessionCreateContext
-{
-	UEOSCreateEOKSessionAsync* AsyncNode = nullptr;
-	FString SessionName;
-	TArray<uint8> SessionNameUTF8;
-	TArray<uint8> BucketIdUTF8;
-	TArray<TArray<uint8>> AttributeKeysUTF8;
-	TArray<TArray<uint8>> AttributeValuesUTF8;
-	EOS_HSessionModification SessionModHandle = nullptr;
-	// Store callback result data
-	int32 ResultCode = static_cast<int32>(EOS_EResult::EOS_NotConfigured);
-	FString SessionId;
-};
+#include "OnlineSessionSettings.h"
 
 void UEOSCreateEOKSessionAsync::Activate()
 {
@@ -38,34 +16,10 @@ void UEOSCreateEOKSessionAsync::Activate()
 void UEOSCreateEOKSessionAsync::CreateSession()
 {
 	UE_LOG(LogTemp, Warning, TEXT("EOSKit: ========================================"));
-	UE_LOG(LogTemp, Warning, TEXT("EOSKit: Creating EOS Session via SDK"));
+	UE_LOG(LogTemp, Warning, TEXT("EOSKit: Creating EOS Session via OnlineSubsystem (like EIK)"));
 	UE_LOG(LogTemp, Warning, TEXT("EOSKit: Session Name: %s"), *VSessionName.ToString());
 	UE_LOG(LogTemp, Warning, TEXT("EOSKit: Public Connections: %d"), NumberOfPublicConnections);
-	UE_LOG(LogTemp, Warning, TEXT("EOSKit: BucketId: %s"), *ExtraSettings.BucketId);
-	UE_LOG(LogTemp, Warning, TEXT("EOSKit: bIsLanMatch: %s (must be false for EOS)"), ExtraSettings.bIsLanMatch ? TEXT("true") : TEXT("false"));
-	UE_LOG(LogTemp, Warning, TEXT("EOSKit: bUsePresence: %s (required for presence-based sessions)"), ExtraSettings.bUsePresence ? TEXT("true") : TEXT("false"));
-	UE_LOG(LogTemp, Warning, TEXT("EOSKit: bShouldAdvertise: %s"), ExtraSettings.bShouldAdvertise ? TEXT("true") : TEXT("false"));
-	UE_LOG(LogTemp, Warning, TEXT("EOSKit: bAllowJoinViaPresence: %s"), ExtraSettings.bAllowJoinViaPresence ? TEXT("true") : TEXT("false"));
-	UE_LOG(LogTemp, Warning, TEXT("EOSKit: bAllowJoinInProgress: %s"), ExtraSettings.bAllowJoinInProgress ? TEXT("true") : TEXT("false"));
 	UE_LOG(LogTemp, Warning, TEXT("EOSKit: ========================================"));
-
-	// Validate and auto-correct critical settings per EOS requirements
-	if (ExtraSettings.bIsLanMatch)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("EOSKit: WARNING - bIsLanMatch is TRUE but must be FALSE for EOS. Overriding to false."));
-		ExtraSettings.bIsLanMatch = false;
-	}
-
-	if (NumberOfPublicConnections <= 0)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("EOSKit: WARNING - NumberOfPublicConnections is %d but must be > 0. Setting to 4."), NumberOfPublicConnections);
-		NumberOfPublicConnections = 4;
-	}
-
-	if (!ExtraSettings.bShouldAdvertise)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("EOSKit: WARNING - bShouldAdvertise is FALSE. Session will not be searchable."));
-	}
 	
 	if (!CachedWorldContextObject)
 	{
@@ -75,335 +29,120 @@ void UEOSCreateEOKSessionAsync::CreateSession()
 		return;
 	}
 	
-	UGameInstance* GameInstance = UGameplayStatics::GetGameInstance(CachedWorldContextObject);
-	if (!GameInstance)
+	// Use OnlineSubsystem interface (like EIK does)
+	if (IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld()))
 	{
-		UE_LOG(LogTemp, Error, TEXT("EOSKit: CreateSession FAILED - Cannot get Game Instance"));
-		OnFail.Broadcast(TEXT("Cannot get Game Instance"));
-		SetReadyToDestroy();
-		return;
-	}
-	
-	UEOSKitSubsystem* EOSKitSubsystem = GameInstance->GetSubsystem<UEOSKitSubsystem>();
-	if (!EOSKitSubsystem || !EOSKitSubsystem->GetPlatformHandle())
-	{
-		UE_LOG(LogTemp, Error, TEXT("EOSKit: CreateSession FAILED - EOSKit Subsystem or Platform Handle is null"));
-		OnFail.Broadcast(TEXT("EOSKit Subsystem or Platform Handle is null"));
-		SetReadyToDestroy();
-		return;
-	}
-	
-	EOS_HPlatform PlatformHandle = EOSKitSubsystem->GetPlatformHandle();
-	EOS_HSessions SessionsHandle = EOS_Platform_GetSessionsInterface(PlatformHandle);
-	
-	if (!SessionsHandle)
-	{
-		UE_LOG(LogTemp, Error, TEXT("EOSKit: CreateSession FAILED - Failed to get Sessions Handle"));
-		OnFail.Broadcast(TEXT("Failed to get Sessions Handle"));
-		SetReadyToDestroy();
-		return;
-	}
-	
-	EOS_ProductUserId LocalUserId = EOSKitSubsystem->GetProductUserId();
-	if (!EOS_ProductUserId_IsValid(LocalUserId))
-	{
-		UE_LOG(LogTemp, Error, TEXT("EOSKit: CreateSession FAILED - Product User ID is null. User must be logged in."));
-		OnFail.Broadcast(TEXT("Product User ID is null - user must be logged in"));
-		SetReadyToDestroy();
-		return;
-	}
-
-	// Log user ID for debugging
-	char ProductUserIdStr[EOS_PRODUCTUSERID_MAX_LENGTH + 1];
-	int32 ProductUserIdStrSize = sizeof(ProductUserIdStr);
-	EOS_ProductUserId_ToString(LocalUserId, ProductUserIdStr, &ProductUserIdStrSize);
-	UE_LOG(LogTemp, Log, TEXT("EOSKit: CreateSession - LocalUserId: %s"), UTF8_TO_TCHAR(ProductUserIdStr));
-	
-	// Create and populate the context that will live until the callback
-	FSessionCreateContext* CallbackContext = new FSessionCreateContext();
-	CallbackContext->AsyncNode = this;
-	CallbackContext->SessionName = VSessionName.ToString();
-	
-	// Convert strings to UTF8 and store them safely in the context
-	FTCHARToUTF8 SessionNameConverter(*CallbackContext->SessionName);
-	CallbackContext->SessionNameUTF8.Append((uint8*)SessionNameConverter.Get(), SessionNameConverter.Length() + 1);
-	
-	// CRITICAL: Ensure BucketId has a default value - EOS sometimes fails without it
-	FString BucketIdStr = ExtraSettings.BucketId.IsEmpty() ? TEXT("MyGameBucket") : ExtraSettings.BucketId;
-	UE_LOG(LogTemp, Log, TEXT("EOSKit: CreateSession - Using BucketId: %s"), *BucketIdStr);
-	FTCHARToUTF8 BucketIdConverter(*BucketIdStr);
-	CallbackContext->BucketIdUTF8.Append((uint8*)BucketIdConverter.Get(), BucketIdConverter.Length() + 1);
-	
-	// Step 1: Create Session Modification Handle
-	EOS_Sessions_CreateSessionModificationOptions CreateModOptions = {};
-	CreateModOptions.ApiVersion = EOS_SESSIONS_CREATESESSIONMODIFICATION_API_LATEST;
-	CreateModOptions.SessionName = (const char*)CallbackContext->SessionNameUTF8.GetData();
-	CreateModOptions.BucketId = (const char*)CallbackContext->BucketIdUTF8.GetData();
-	CreateModOptions.MaxPlayers = NumberOfPublicConnections;
-	CreateModOptions.LocalUserId = LocalUserId;
-	CreateModOptions.bPresenceEnabled = ExtraSettings.bUsePresence ? EOS_TRUE : EOS_FALSE;
-	CreateModOptions.bSanctionsEnabled = ExtraSettings.bEnforceSanctions ? EOS_TRUE : EOS_FALSE;
-
-	UE_LOG(LogTemp, Log, TEXT("EOSKit: CreateSession - Creating modification handle..."));
-	UE_LOG(LogTemp, Log, TEXT("  SessionName: %s"), UTF8_TO_TCHAR(CreateModOptions.SessionName));
-	UE_LOG(LogTemp, Log, TEXT("  BucketId: %s"), UTF8_TO_TCHAR(CreateModOptions.BucketId));
-	UE_LOG(LogTemp, Log, TEXT("  MaxPlayers: %d"), CreateModOptions.MaxPlayers);
-	UE_LOG(LogTemp, Log, TEXT("  bPresenceEnabled: %s"), CreateModOptions.bPresenceEnabled ? TEXT("true") : TEXT("false"));
-	UE_LOG(LogTemp, Log, TEXT("  bSanctionsEnabled: %s"), CreateModOptions.bSanctionsEnabled ? TEXT("true") : TEXT("false"));
-	
-	EOS_HSessionModification SessionModHandle = nullptr;
-	EOS_EResult CreateModResult = EOS_Sessions_CreateSessionModification(SessionsHandle, &CreateModOptions, &SessionModHandle);
-	
-	if (CreateModResult != EOS_EResult::EOS_Success)
-	{
-		const char* ErrorStr = EOS_EResult_ToString(CreateModResult);
-		UE_LOG(LogTemp, Error, TEXT("EOSKit: ========================================"));
-		UE_LOG(LogTemp, Error, TEXT("EOSKit: CreateSession FAILED at CreateSessionModification!"));
-		UE_LOG(LogTemp, Error, TEXT("EOSKit: Error Code: %s (%d)"), UTF8_TO_TCHAR(ErrorStr), static_cast<int32>(CreateModResult));
-		UE_LOG(LogTemp, Error, TEXT("EOSKit: ========================================"));
-		delete CallbackContext;
-		OnFail.Broadcast(FString::Printf(TEXT("CreateSessionModification failed: %s"), UTF8_TO_TCHAR(ErrorStr)));
-		SetReadyToDestroy();
-		return;
-	}
-	
-	CallbackContext->SessionModHandle = SessionModHandle;
-	
-	// Step 2: Set Session Properties
-	UE_LOG(LogTemp, Log, TEXT("EOSKit: CreateSession - Setting session properties..."));
-
-	// Set permission level based on bShouldAdvertise
-	EOS_SessionModification_SetPermissionLevelOptions PermOptions = {};
-	PermOptions.ApiVersion = EOS_SESSIONMODIFICATION_SETPERMISSIONLEVEL_API_LATEST;
-	PermOptions.PermissionLevel = ExtraSettings.bShouldAdvertise ? 
-		EOS_EOnlineSessionPermissionLevel::EOS_OSPF_PublicAdvertised : 
-		EOS_EOnlineSessionPermissionLevel::EOS_OSPF_InviteOnly;
-	EOS_EResult PermResult = EOS_SessionModification_SetPermissionLevel(SessionModHandle, &PermOptions);
-	UE_LOG(LogTemp, Log, TEXT("  SetPermissionLevel: %s (result: %s)"), 
-		ExtraSettings.bShouldAdvertise ? TEXT("PublicAdvertised") : TEXT("InviteOnly"),
-		UTF8_TO_TCHAR(EOS_EResult_ToString(PermResult)));
-	
-	// Set join in progress allowed
-	EOS_SessionModification_SetJoinInProgressAllowedOptions JIPOptions = {};
-	JIPOptions.ApiVersion = EOS_SESSIONMODIFICATION_SETJOININPROGRESSALLOWED_API_LATEST;
-	JIPOptions.bAllowJoinInProgress = ExtraSettings.bAllowJoinInProgress ? EOS_TRUE : EOS_FALSE;
-	EOS_EResult JIPResult = EOS_SessionModification_SetJoinInProgressAllowed(SessionModHandle, &JIPOptions);
-	UE_LOG(LogTemp, Log, TEXT("  SetJoinInProgressAllowed: %s (result: %s)"), 
-		ExtraSettings.bAllowJoinInProgress ? TEXT("true") : TEXT("false"),
-		UTF8_TO_TCHAR(EOS_EResult_ToString(JIPResult)));
-	
-	// Add custom attributes, ensuring strings are kept alive in the context
-	UE_LOG(LogTemp, Log, TEXT("EOSKit: CreateSession - Adding %d custom attributes..."), SessionSettings.Num());
-	for (const auto& Setting : SessionSettings)
-	{
-		if (Setting.Key.IsEmpty()) continue;
-		
-		// Store key string in context
-		FTCHARToUTF8 KeyConverter(*Setting.Key);
-		TArray<uint8>& KeyUTF8 = CallbackContext->AttributeKeysUTF8.Emplace_GetRef();
-		KeyUTF8.Append((uint8*)KeyConverter.Get(), KeyConverter.Length() + 1);
-
-		EOS_Sessions_AttributeData AttrData = {};
-		AttrData.ApiVersion = EOS_SESSIONS_SESSIONATTRIBUTEDATA_API_LATEST;
-		AttrData.Key = (const char*)KeyUTF8.GetData();
-		
-		if (!Setting.Value.StringValue.IsEmpty())
+		if (IOnlineSessionPtr SessionPtr = Subsystem->GetSessionInterface())
 		{
-			AttrData.ValueType = EOS_ESessionAttributeType::EOS_SAT_String;
-			FTCHARToUTF8 ValueConverter(*Setting.Value.StringValue);
-			TArray<uint8>& ValueUTF8 = CallbackContext->AttributeValuesUTF8.Emplace_GetRef();
-			ValueUTF8.Append((uint8*)ValueConverter.Get(), ValueConverter.Length() + 1);
-			AttrData.Value.AsUtf8 = (const char*)ValueUTF8.GetData();
-			UE_LOG(LogTemp, Log, TEXT("  Attribute '%s' = '%s' (String)"), *Setting.Key, *Setting.Value.StringValue);
-		}
-		else if (Setting.Value.IntValue != 0)
-		{
-			AttrData.ValueType = EOS_ESessionAttributeType::EOS_SAT_Int64;
-			AttrData.Value.AsInt64 = Setting.Value.IntValue;
-			UE_LOG(LogTemp, Log, TEXT("  Attribute '%s' = %d (Int64)"), *Setting.Key, Setting.Value.IntValue);
-		}
-		else
-		{
-			AttrData.ValueType = EOS_ESessionAttributeType::EOS_SAT_Boolean;
-			AttrData.Value.AsBool = Setting.Value.BoolValue ? EOS_TRUE : EOS_FALSE;
-			UE_LOG(LogTemp, Log, TEXT("  Attribute '%s' = %s (Bool)"), *Setting.Key, Setting.Value.BoolValue ? TEXT("true") : TEXT("false"));
-		}
-		
-		EOS_SessionModification_AddAttributeOptions AttrOptions = {};
-		AttrOptions.ApiVersion = EOS_SESSIONMODIFICATION_ADDATTRIBUTE_API_LATEST;
-		AttrOptions.SessionAttribute = &AttrData;
-		AttrOptions.AdvertisementType = EOS_ESessionAttributeAdvertisementType::EOS_SAAT_Advertise;
-		
-		EOS_EResult AttrResult = EOS_SessionModification_AddAttribute(SessionModHandle, &AttrOptions);
-		if (static_cast<int32>(AttrResult) != static_cast<int32>(EOS_EResult::EOS_Success))
-		{
-			UE_LOG(LogTemp, Warning, TEXT("EOSKit: Failed to add attribute '%s': %s"), *Setting.Key, UTF8_TO_TCHAR(EOS_EResult_ToString(AttrResult)));
-		}
-	}
-	
-	// Step 3: Update Session (Create it on EOS backend)
-	UE_LOG(LogTemp, Log, TEXT("EOSKit: CreateSession - Calling EOS_Sessions_UpdateSession..."));
-	EOS_Sessions_UpdateSessionOptions UpdateOptions = {};
-	UpdateOptions.ApiVersion = EOS_SESSIONS_UPDATESESSION_API_LATEST;
-	UpdateOptions.SessionModificationHandle = SessionModHandle;
-	
-	EOS_Sessions_UpdateSession(SessionsHandle, &UpdateOptions, CallbackContext, 
-		[](const EOS_Sessions_UpdateSessionCallbackInfo* Data)
-		{
-			FSessionCreateContext* Context = static_cast<FSessionCreateContext*>(Data->ClientData);
+			// Build session settings
+			FOnlineSessionSettings Settings;
+			Settings.NumPublicConnections = NumberOfPublicConnections;
+			Settings.NumPrivateConnections = ExtraSettings.NumberOfPrivateConnections;
+			Settings.bShouldAdvertise = ExtraSettings.bShouldAdvertise;
+			Settings.bUsesPresence = ExtraSettings.bUsePresence;
+			Settings.bAllowJoinInProgress = ExtraSettings.bAllowJoinInProgress;
+			Settings.bAllowJoinViaPresence = ExtraSettings.bAllowJoinViaPresence;
+			Settings.bAllowJoinViaPresenceFriendsOnly = ExtraSettings.bAllowJoinViaPresenceFriendsOnly;
+			Settings.bIsLANMatch = false; // Always false for EOS
+			Settings.bUseLobbiesIfAvailable = false;
+			Settings.bAllowInvites = true;
+			Settings.bIsDedicated = DedicatedServerSettings.bUseDedicatedServer;
 			
-			if (!Context || !Context->AsyncNode)
+			// Add BucketId
+			if (!ExtraSettings.BucketId.IsEmpty())
 			{
-				UE_LOG(LogTemp, Error, TEXT("EOSKit: CreateSession callback - Invalid context"));
-				if (Context)
+				Settings.Set(FName(TEXT("BucketId")), ExtraSettings.BucketId, EOnlineDataAdvertisementType::ViaOnlineService);
+			}
+			
+			// Add custom attributes
+			for (const auto& Setting : SessionSettings)
+			{
+				if (Setting.Key.IsEmpty()) continue;
+				
+				FOnlineSessionSetting SessionSetting;
+				SessionSetting.AdvertisementType = EOnlineDataAdvertisementType::ViaOnlineService;
+				
+				if (!Setting.Value.StringValue.IsEmpty())
 				{
-					if (Context->SessionModHandle)
-					{
-						EOS_SessionModification_Release(Context->SessionModHandle);
-					}
-					delete Context;
+					SessionSetting.Data.SetValue(Setting.Value.StringValue);
 				}
-				return;
-			}
-
-			// CRITICAL: Copy callback data into context before scheduling async task
-			// The Data pointer may become invalid after the callback returns
-			Context->ResultCode = static_cast<int32>(Data->ResultCode);
-			if (Data->SessionId && strlen(Data->SessionId) > 0)
-			{
-				Context->SessionId = UTF8_TO_TCHAR(Data->SessionId);
-			}
-
-			AsyncTask(ENamedThreads::GameThread, [Context]()
-			{
-				// Log raw ResultCode for debugging
-				const char* ErrorStr = EOS_EResult_ToString(static_cast<EOS_EResult>(Context->ResultCode));
-				UE_LOG(LogTemp, Warning, TEXT("EOSKit: [CALLBACK] Raw ResultCode value: %d (0x%08X) = %s"), 
-					static_cast<int32>(Context->ResultCode), 
-					static_cast<uint32>(Context->ResultCode),
-					UTF8_TO_TCHAR(ErrorStr));
-				
-				// Check if we have a SessionId even if ResultCode is not Success
-				// Sometimes EOS returns a partial success with a SessionId
-				bool bHasSessionId = !Context->SessionId.IsEmpty();
-				
-				// EOS_Success is 0, so check both ways
-				bool bIsSuccess = (Context->ResultCode == static_cast<int32>(EOS_EResult::EOS_Success)) || (Context->ResultCode == 0);
-				
-				// If we have a SessionId, treat it as success even if ResultCode says otherwise
-				// This handles cases where EOS creates the session but returns a warning code
-				if (bIsSuccess || bHasSessionId)
+				else if (Setting.Value.IntValue != 0)
 				{
-					UE_LOG(LogTemp, Log, TEXT("EOSKit: ========================================"));
-					UE_LOG(LogTemp, Log, TEXT("EOSKit: CreateSession SUCCESS!"));
-					UE_LOG(LogTemp, Log, TEXT("EOSKit: Session Name: %s"), *Context->SessionName);
-					UE_LOG(LogTemp, Log, TEXT("EOSKit: Session ID: %s"), *Context->SessionId);
-					if (!bIsSuccess && bHasSessionId)
-					{
-						UE_LOG(LogTemp, Warning, TEXT("EOSKit: NOTE: ResultCode was %s but SessionId exists - treating as success"), UTF8_TO_TCHAR(ErrorStr));
-					}
-					UE_LOG(LogTemp, Log, TEXT("EOSKit: ========================================"));
-					
-					if (Context->AsyncNode)
-					{
-						Context->AsyncNode->OnSuccess.Broadcast(Context->SessionId);
-						
-						// Register the local player in the session after successful creation
-						if (bHasSessionId && Context->AsyncNode && Context->AsyncNode->CachedWorldContextObject)
-						{
-							UE_LOG(LogTemp, Log, TEXT("EOSKit: Attempting to register local player in session..."));
-							
-							// Use OnlineSubsystem to register player
-							if (const IOnlineSubsystem* Subsystem = Online::GetSubsystem(Context->AsyncNode->CachedWorldContextObject->GetWorld()))
-							{
-								if (const IOnlineSessionPtr SessionPtr = Subsystem->GetSessionInterface())
-								{
-									if (const IOnlineIdentityPtr Identity = Subsystem->GetIdentityInterface())
-									{
-										if (TSharedPtr<const FUniqueNetId> UniqueId = Identity->GetUniquePlayerId(0))
-										{
-											if (SessionPtr->RegisterPlayer(FName(*Context->SessionName), *UniqueId, false))
-											{
-												UE_LOG(LogTemp, Log, TEXT("EOSKit: Successfully registered local player in session '%s'"), *Context->SessionName);
-											}
-											else
-											{
-												UE_LOG(LogTemp, Warning, TEXT("EOSKit: Failed to register local player in session '%s'"), *Context->SessionName);
-											}
-										}
-										else
-										{
-											UE_LOG(LogTemp, Warning, TEXT("EOSKit: Could not get UniqueNetId for player registration"));
-										}
-									}
-									else
-									{
-										UE_LOG(LogTemp, Warning, TEXT("EOSKit: Could not get Identity interface for player registration"));
-									}
-								}
-								else
-								{
-									UE_LOG(LogTemp, Warning, TEXT("EOSKit: Could not get Session interface for player registration"));
-								}
-							}
-							else
-							{
-								UE_LOG(LogTemp, Warning, TEXT("EOSKit: Could not get OnlineSubsystem for player registration"));
-							}
-						}
-					}
+					SessionSetting.Data.SetValue(Setting.Value.IntValue);
 				}
 				else
 				{
-					// Check if ResultCode is valid
-					if (Context->ResultCode < 0 || Context->ResultCode > 0x7FFFFFFF)
-					{
-						UE_LOG(LogTemp, Error, TEXT("EOSKit: [CALLBACK] WARNING: ResultCode appears to be invalid or corrupted!"));
-					}
-					
-					UE_LOG(LogTemp, Error, TEXT("EOSKit: ========================================"));
-					UE_LOG(LogTemp, Error, TEXT("EOSKit: CreateSession FAILED!"));
-					UE_LOG(LogTemp, Error, TEXT("EOSKit: Error Code: %s (%d / 0x%08X)"), 
-						UTF8_TO_TCHAR(ErrorStr), 
-						static_cast<int32>(Context->ResultCode),
-						static_cast<uint32>(Context->ResultCode));
-					UE_LOG(LogTemp, Error, TEXT("EOSKit: Session Name: %s"), *Context->SessionName);
-					
-					// Log additional callback info if available
-					if (bHasSessionId)
-					{
-						UE_LOG(LogTemp, Warning, TEXT("EOSKit: WARNING: SessionId exists despite failure: %s"), *Context->SessionId);
-					}
-					
-					UE_LOG(LogTemp, Error, TEXT("EOSKit: ========================================"));
-					
-					if (Context->AsyncNode)
-					{
-						FString ErrorMessage = FString::Printf(TEXT("UpdateSession failed: %s (Code: %d)"), UTF8_TO_TCHAR(ErrorStr), static_cast<int32>(Context->ResultCode));
-						Context->AsyncNode->OnFail.Broadcast(ErrorMessage);
-					}
-				}
-
-				if (Context->AsyncNode)
-				{
-					Context->AsyncNode->SetReadyToDestroy();
+					SessionSetting.Data.SetValue(Setting.Value.BoolValue);
 				}
 				
-				if (Context->SessionModHandle)
-				{
-					EOS_SessionModification_Release(Context->SessionModHandle);
-				}
-				
-				delete Context;
-			});
-		});
-	
-	UE_LOG(LogTemp, Log, TEXT("EOSKit: CreateSession - Waiting for callback..."));
+				Settings.Set(FName(*Setting.Key), SessionSetting);
+			}
+			
+			// Register callback
+			SessionPtr->OnCreateSessionCompleteDelegates.AddUObject(this, &UEOSCreateEOKSessionAsync::OnCreateSessionCompleted);
+			
+			// Create session via OnlineSubsystem (creates local + EOS backend)
+			UE_LOG(LogTemp, Log, TEXT("EOSKit: Calling OnlineSubsystem->CreateSession()..."));
+			SessionPtr->CreateSession(0, VSessionName, Settings);
+			return;
+		}
+		else
+		{
+			UE_LOG(LogTemp, Error, TEXT("EOSKit: CreateSession FAILED - SessionInterface is null"));
+			OnFail.Broadcast(TEXT("SessionInterface is null"));
+			SetReadyToDestroy();
+			return;
+		}
+	}
+	else
+	{
+		UE_LOG(LogTemp, Error, TEXT("EOSKit: CreateSession FAILED - OnlineSubsystem is null"));
+		OnFail.Broadcast(TEXT("OnlineSubsystem is null"));
+		SetReadyToDestroy();
+		return;
+	}
 }
 
 void UEOSCreateEOKSessionAsync::OnCreateSessionCompleted(FName SessionName, bool bWasSuccessful)
 {
-	// Not used - we use the EOS SDK callback directly
+	if (bWasSuccessful)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("EOSKit: ✅ Session created successfully!"));
+		
+		// Get session ID for broadcast
+		FString SessionId;
+		if (const IOnlineSubsystem* Subsystem = IOnlineSubsystem::Get())
+		{
+			if (const IOnlineSessionPtr SessionPtr = Subsystem->GetSessionInterface())
+			{
+				if (FNamedOnlineSession* Session = SessionPtr->GetNamedSession(SessionName))
+				{
+					if (Session->SessionInfo.IsValid())
+					{
+						SessionId = Session->SessionInfo->GetSessionId().ToString();
+					}
+					UE_LOG(LogTemp, Warning, TEXT("EOSKit: Session Name: %s"), *SessionName.ToString());
+					UE_LOG(LogTemp, Warning, TEXT("EOSKit: Session ID: %s"), *SessionId);
+					UE_LOG(LogTemp, Warning, TEXT("EOSKit: Note: Session is created but NOT started. Call StartSession separately if needed."));
+				}
+			}
+		}
+		
+		// Broadcast success - session is created but NOT started
+		OnSuccess.Broadcast(SessionId);
+	}
+	else
+	{
+		UE_LOG(LogTemp, Error, TEXT("EOSKit: Failed to create session via OnlineSubsystem"));
+		OnFail.Broadcast(TEXT("CreateSession failed"));
+	}
+	
+	SetReadyToDestroy();
+#if ENGINE_MAJOR_VERSION == 5
+	MarkAsGarbage();
+#else
+	MarkPendingKill();
+#endif
 }
 
 UEOSCreateEOKSessionAsync* UEOSCreateEOKSessionAsync::CreateEOKSession(

@@ -14,7 +14,7 @@ public class EOSKitFriends : ModuleRules
 			"Engine",
 			"OnlineSubsystem",
 			"OnlineSubsystemUtils",
-			"EOSSDK",
+			"EOSKitSDK",
 			"EOSKitShared",
 			"EOSKitSessions",
 			"EOSKit"

@@ -14,7 +14,7 @@ public class EOSKitStorage : ModuleRules
 			"Engine",
 			"OnlineSubsystem",
 			"OnlineSubsystemUtils",
-			"EOSSDK",
+			"EOSKitSDK",
 			"EOSKitShared",
 		});
 

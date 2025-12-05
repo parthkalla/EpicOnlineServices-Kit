@@ -41,6 +41,7 @@ public:
 	virtual ESocketErrors TranslateErrorCode(int32 Code) override;
 	virtual bool GetLocalAdapterAddresses(TArray<TSharedPtr<FInternetAddr>>& OutAddresses) override;
 	virtual TArray<TSharedRef<FInternetAddr>> GetLocalBindAddresses() override;
+	virtual TSharedRef<FInternetAddr> GetLocalBindAddr(FOutputDevice& Out) override;
 	virtual bool RequiresChatDataBeSeparate() override;
 	virtual bool RequiresEncryptedPackets() override;
 	virtual bool IsSocketWaitSupported() const override;

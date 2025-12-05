@@ -5,11 +5,17 @@
 #include "EOSKitSubsystem.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
+#include "SocketSubsystemModule.h"
+#include "Modules/ModuleManager.h"
 #if WITH_EOS_SDK
 #include "Windows/AllowWindowsPlatformTypes.h"
 #include "eos_sdk.h"
 #include "eos_p2p.h"
 #include "Windows/HideWindowsPlatformTypes.h"
+#endif
+
+#ifndef EOS_SOCKETSUBSYSTEM
+#define EOS_SOCKETSUBSYSTEM FName(TEXT("EOS"))
 #endif
 
 FSocketSubsystemEOS* FSocketSubsystemEOS::SocketSingleton = nullptr;
@@ -68,7 +74,11 @@ bool FSocketSubsystemEOS::Init(FString& Error)
 
 				if (P2PHandle && LocalProductUserId)
 				{
-					UE_LOG(LogNet, Log, TEXT("FSocketSubsystemEOS: Initialized successfully"));
+					// Register this socket subsystem with Unreal's socket subsystem module (CRITICAL for NetDriver selection)
+					FSocketSubsystemModule& SocketSubsystem = FModuleManager::LoadModuleChecked<FSocketSubsystemModule>("Sockets");
+					SocketSubsystem.RegisterSocketSubsystem(EOS_SOCKETSUBSYSTEM, this, false);
+					
+					UE_LOG(LogNet, Log, TEXT("FSocketSubsystemEOS: Initialized and registered successfully"));
 					return true;
 				}
 				else
@@ -101,6 +111,13 @@ bool FSocketSubsystemEOS::Init(FString& Error)
 void FSocketSubsystemEOS::Shutdown()
 {
 	UE_LOG(LogNet, Log, TEXT("FSocketSubsystemEOS: Shutting down"));
+	
+	// Unregister from socket subsystem module
+	if (FSocketSubsystemModule* SocketSubsystem = FModuleManager::GetModulePtr<FSocketSubsystemModule>("Sockets"))
+	{
+		SocketSubsystem->UnregisterSocketSubsystem(EOS_SOCKETSUBSYSTEM);
+	}
+	
 	P2PHandle = nullptr;
 	LocalProductUserId = nullptr;
 }
@@ -129,19 +146,44 @@ void FSocketSubsystemEOS::DestroySocket(FSocket* Socket)
 FAddressInfoResult FSocketSubsystemEOS::GetAddressInfo(const TCHAR* HostName, const TCHAR* ServiceName,
 	EAddressInfoFlags QueryFlags, const FName ProtocolTypeName, ESocketType SocketType)
 {
-	// Create an EOS address from the hostname (which should be a ProductUserId)
+	// Create an EOS address from the hostname.
+	// HostName may be:
+	//   - A raw ProductUserId           (0002....)
+	//   - An EOS address string         (EOS:ProductUserId:GameNetDriver:26)
 	FAddressInfoResult Result(HostName, ServiceName);
-	
+
+	FString HostString(HostName);
+	UE_LOG(LogNet, Warning, TEXT("FSocketSubsystemEOS::GetAddressInfo: HostName='%s', ServiceName='%s'"), HostName, ServiceName ? ServiceName : TEXT("NULL"));
+
+	// Strip EOS: prefix if present
+	if (HostString.StartsWith(TEXT("EOS:"), ESearchCase::IgnoreCase))
+	{
+		HostString = HostString.RightChop(4);
+		UE_LOG(LogNet, Warning, TEXT("FSocketSubsystemEOS::GetAddressInfo: Stripped EOS: prefix, HostString='%s'"), *HostString);
+	}
+
+	// For EOS address strings (ProductUserId:GameNetDriver:26), keep only the ProductUserId
+	TArray<FString> Parts;
+	HostString.ParseIntoArray(Parts, TEXT(":"), true);
+	if (Parts.Num() >= 1)
+	{
+		HostString = Parts[0];
+		UE_LOG(LogNet, Warning, TEXT("FSocketSubsystemEOS::GetAddressInfo: Extracted ProductUserId='%s' from parts (total parts: %d)"), *HostString, Parts.Num());
+	}
+
 	TSharedRef<FInternetAddrEOS> EOSAddr = MakeShared<FInternetAddrEOS>();
-	EOSAddr->SetProductUserId(HostName);
-	
+	EOSAddr->SetProductUserId(*HostString);
+
 	if (EOSAddr->IsValid())
 	{
+		UE_LOG(LogNet, Warning, TEXT("FSocketSubsystemEOS::GetAddressInfo: ✅ Successfully created EOS address for ProductUserId='%s'"), *HostString);
 		Result.Results.Add(FAddressInfoResultData(EOSAddr, 0, ProtocolTypeName, SocketType));
 		Result.ReturnCode = SE_NO_ERROR;
 	}
 	else
 	{
+		UE_LOG(LogNet, Error, TEXT("FSocketSubsystemEOS::GetAddressInfo: ❌ Failed to create valid EOS address for HostString='%s' (original HostName='%s')"), *HostString, HostName);
+		LastSocketError = SE_HOST_NOT_FOUND;
 		Result.ReturnCode = SE_HOST_NOT_FOUND;
 	}
 
@@ -150,8 +192,23 @@ FAddressInfoResult FSocketSubsystemEOS::GetAddressInfo(const TCHAR* HostName, co
 
 TSharedPtr<FInternetAddr> FSocketSubsystemEOS::GetAddressFromString(const FString& InAddress)
 {
+	// Support both raw ProductUserId and EOS:ProductUserId:GameNetDriver:26 formats
+	FString HostString(InAddress);
+
+	if (HostString.StartsWith(TEXT("EOS:"), ESearchCase::IgnoreCase))
+	{
+		HostString = HostString.RightChop(4);
+	}
+
+	TArray<FString> Parts;
+	HostString.ParseIntoArray(Parts, TEXT(":"), true);
+	if (Parts.Num() >= 1)
+	{
+		HostString = Parts[0];
+	}
+
 	TSharedRef<FInternetAddrEOS> EOSAddr = MakeShared<FInternetAddrEOS>();
-	EOSAddr->SetProductUserId(InAddress);
+	EOSAddr->SetProductUserId(*HostString);
 	return EOSAddr;
 }
 
@@ -247,6 +304,28 @@ TArray<TSharedRef<FInternetAddr>> FSocketSubsystemEOS::GetLocalBindAddresses()
 	}
 	
 	return Results;
+}
+
+TSharedRef<FInternetAddr> FSocketSubsystemEOS::GetLocalBindAddr(FOutputDevice& Out)
+{
+	TSharedRef<FInternetAddrEOS> BoundAddr = MakeShared<FInternetAddrEOS>();
+	
+	if (!LocalProductUserId)
+	{
+		UE_LOG(LogNet, Error, TEXT("FSocketSubsystemEOS::GetLocalBindAddr: No local ProductUserId"));
+		return BoundAddr;
+	}
+	
+	char ProductUserIdStr[EOS_PRODUCTUSERID_MAX_LENGTH + 1];
+	int32_t ProductUserIdStrSize = sizeof(ProductUserIdStr);
+	if (EOS_ProductUserId_ToString(LocalProductUserId, ProductUserIdStr, &ProductUserIdStrSize) == EOS_EResult::EOS_Success)
+	{
+		BoundAddr->SetProductUserId(UTF8_TO_TCHAR(ProductUserIdStr));
+		// Set socket name to GameSession (default session name)
+		BoundAddr->SetSocketName(TEXT("GameSession"));
+	}
+	
+	return BoundAddr;
 }
 
 bool FSocketSubsystemEOS::RequiresChatDataBeSeparate()

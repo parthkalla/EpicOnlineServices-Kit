@@ -33,14 +33,6 @@ public:
 	// ========================================
 
 	/**
-	 * Get the player's display name/nickname
-	 * @param LocalUserNum - Local user index
-	 * @return Player's nickname or empty string if not available
-	 */
-	UFUNCTION(BlueprintPure, Category="EOSKit|User")
-	static FString GetPlayerNickname(int32 LocalUserNum = 0);
-
-	/**
 	 * Check if a player is logged in
 	 * @param LocalUserNum - Local user index
 	 * @return True if the player is logged in
@@ -161,7 +153,28 @@ public:
 	UFUNCTION(BlueprintPure, Category="EOSKit|Status")
 	static bool IsEOSKitInitialized();
 
+	/**
+	 * Manually destroy all active sessions
+	 * Useful for standalone/packaged game cleanup
+	 * 
+	 * @return Number of sessions destroyed
+	 */
+	UFUNCTION(BlueprintCallable, Category="EOSKit|Session")
+	int32 DestroyAllActiveSessions();
+
 private:
 	/** Whether the subsystem has been initialized */
 	bool bIsInitialized = false;
+	
+	/** Delegate handle for world initialization */
+	FDelegateHandle WorldInitDelegateHandle;
+	
+	/** Delegate handle for application exit (standalone mode) */
+	FDelegateHandle OnExitDelegateHandle;
+	
+	/** Called when a world is initialized - used to auto-register players in active sessions */
+	void OnWorldInitialized(UWorld* World, UWorld::InitializationValues IVS);
+	
+	/** Called when the game is shutting down (standalone mode) */
+	void OnStandaloneGameShutdown();
 };

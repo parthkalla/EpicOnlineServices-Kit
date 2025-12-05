@@ -43,7 +43,7 @@ void FEOSKitEditorModule::RegisterSettings()
 				"Project",
 				"Plugins",
 				"EOSKit",
-				LOCTEXT("EOSKitSettingsName", "EOSKit"),
+				LOCTEXT("EOSKitSettingsName", "EOS Kit"),
 				LOCTEXT("EOSKitSettingsDesc", "Epic Online Services Kit settings."),
 				GetMutableDefault<UEOSKitSettings>()
 			);
@@ -77,9 +77,9 @@ void FEOSKitEditorModule::RegisterMenuExtensions()
 			"EOSKitMenu",
 			FUIAction(),
 			FOnGetContent::CreateRaw(this, &FEOSKitEditorModule::GenerateMenuContent),
-			LOCTEXT("EOSKitMenu", "EOSKit"),
-			LOCTEXT("EOSKitTooltip", "EOSKit Tools"),
-			FSlateIcon(),
+			TAttribute<FText>::Create(TAttribute<FText>::FGetter::CreateLambda([]() { return FText::FromString(TEXT("EOS Kit")); })),
+			LOCTEXT("EOSKitTooltip", "EOS Kit Tools"),
+			FSlateIcon(FAppStyle::GetAppStyleSetName(), "LevelEditor.OpenLevelBlueprint"),
 			false
 		));
 	}

@@ -21,11 +21,13 @@
 #include "EOSKitSubsystem.h"
 #include "IEOSSDKManager.h"
 #include "IEOSKitPlatformHandle.h"
+#include "SocketSubsystemEOS.h"
 #include "Misc/App.h"
 #include "Misc/ConfigCacheIni.h"
 #include "Misc/NetworkVersion.h"
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
+#include "Modules/ModuleManager.h"
 
 #if WITH_EOS_SDK
 	#include "eos_auth.h"
@@ -86,23 +88,23 @@ bool FOnlineSubsystemEOSKit::Init()
 {
 	UE_LOG_ONLINE(Log, TEXT("FOnlineSubsystemEOSKit::Init()"));
 
-	// Get settings
-	UEOSKitSettings* Settings = GetMutableDefault<UEOSKitSettings>();
-	if (!Settings)
-	{
-		UE_LOG_ONLINE(Error, TEXT("FOnlineSubsystemEOSKit: Failed to get EOSKitSettings"));
-		return false;
-	}
+	// Ensure the shared module (and SDK manager) is loaded
+	FModuleManager::LoadModuleChecked<IModuleInterface>("EOSKitShared");
 
-	// Get active artifact
-	FEOSArtifact ActiveArtifact = Settings->GetActiveArtifact();
-	if (ActiveArtifact.ProductId.IsEmpty())
+	// Read ProductId from config (avoid UObject access during early init)
+	FEOSArtifact ActiveArtifact;
+	if (!UEOSKitSettings::GetSettingsForArtifactFromIni(TEXT(""), ActiveArtifact))
 	{
-		UE_LOG_ONLINE(Error, TEXT("FOnlineSubsystemEOSKit: ProductId is empty in settings"));
-		return false;
+		UE_LOG_ONLINE(Warning, TEXT("FOnlineSubsystemEOSKit: Failed to read artifact from config. OnlineSubsystem will initialize without ProductId."));
 	}
-
-	ProductId = ActiveArtifact.ProductId;
+	else if (ActiveArtifact.ProductId.IsEmpty())
+	{
+		UE_LOG_ONLINE(Warning, TEXT("FOnlineSubsystemEOSKit: ProductId is empty in settings. OnlineSubsystem will initialize without ProductId."));
+	}
+	else
+	{
+		ProductId = ActiveArtifact.ProductId;
+	}
 
 #if WITH_EOS_SDK
 	// Get platform handle from IEOSSDKManager (shared with UEOSKitSubsystem)
@@ -150,6 +152,21 @@ bool FOnlineSubsystemEOSKit::Init()
 			VoiceInterfacePtr = MakeShared<FOnlineVoiceEOSKit, ESPMode::ThreadSafe>(this);
 			
 			UE_LOG_ONLINE(Log, TEXT("FOnlineSubsystemEOSKit: Successfully retrieved EOS handles from SDK Manager and created all interfaces"));
+			
+			// Create and initialize the EOS socket subsystem (required for NetDriver)
+			FSocketSubsystemEOS* SocketSubsystem = FSocketSubsystemEOS::Create();
+			if (SocketSubsystem)
+			{
+				FString SocketError;
+				if (SocketSubsystem->Init(SocketError))
+				{
+					UE_LOG_ONLINE(Log, TEXT("FOnlineSubsystemEOSKit: EOS Socket Subsystem initialized successfully"));
+				}
+				else
+				{
+					UE_LOG_ONLINE(Warning, TEXT("FOnlineSubsystemEOSKit: Failed to initialize EOS Socket Subsystem: %s"), *SocketError);
+				}
+			}
 		}
 		else
 		{

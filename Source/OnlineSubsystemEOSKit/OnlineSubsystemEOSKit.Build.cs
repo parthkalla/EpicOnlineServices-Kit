@@ -21,7 +21,7 @@ public class OnlineSubsystemEOSKit : ModuleRules
 			"Core",
 			"CoreUObject",
 			"Engine",
-			"EOSSDK",
+			"EOSKitSDK",
 			"EOSKit",
 			"EOSKitAuth",
 			"EOSKitSessions",

@@ -15,7 +15,7 @@ struct FEOSTitleStorageFileInfo
 	FString Filename;
 
 	UPROPERTY(BlueprintReadOnly, Category = "EOSKit|TitleStorage")
-	int32 FileSizeBytes;
+	int32 FileSizeBytes = 0;
 
 	UPROPERTY(BlueprintReadOnly, Category = "EOSKit|TitleStorage")
 	FString MD5Hash;

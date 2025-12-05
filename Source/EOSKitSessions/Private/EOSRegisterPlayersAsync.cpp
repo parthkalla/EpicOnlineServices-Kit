@@ -36,7 +36,21 @@ void UEOSRegisterPlayersAsync::RegisterPlayersInSession()
 	UE_LOG(LogTemp, Warning, TEXT("EOSKit: ========================================"));
 	
 	// Get the EOSKit subsystem
-	UGameInstance* GameInstance = GetWorld()->GetGameInstance();
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		UE_LOG(LogTemp, Error, TEXT("EOSKit: Failed to get World"));
+		OnFail.Broadcast(TArray<FString>(), TArray<FString>());
+		SetReadyToDestroy();
+#if ENGINE_MAJOR_VERSION == 5
+		MarkAsGarbage();
+#else
+		MarkPendingKill();
+#endif
+		return;
+	}
+
+	UGameInstance* GameInstance = World->GetGameInstance();
 	if (!GameInstance)
 	{
 		UE_LOG(LogTemp, Error, TEXT("EOSKit: Failed to get Game Instance"));

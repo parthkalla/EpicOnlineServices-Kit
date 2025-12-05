@@ -56,6 +56,15 @@ private:
 	
 	/** Cached user accounts */
 	TMap<FUniqueNetIdRef, TSharedRef<FUserOnlineAccount>> UserAccounts;
+	
+	/** Map of LocalUserNum to DisplayName for Device ID logins */
+	TMap<int32, FString> LocalUserNumToDisplayName;
+
+	/** Internal handler for login complete to populate UserAccounts */
+	void OnLoginCompleteInternal(int32 LocalUserNum, bool bWasSuccessful, const FUniqueNetId& UserId, const FString& Error);
+	
+	/** Helper to create Device ID and retry login */
+	void CreateDeviceIdAndRetryLogin(int32 LocalUserNum, const FString& DisplayName);
 };
 
 #endif // WITH_EOS_SDK

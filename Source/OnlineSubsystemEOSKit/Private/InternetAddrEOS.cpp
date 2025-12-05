@@ -95,3 +95,25 @@ uint32 FInternetAddrEOS::GetTypeHash() const
 	// Use ProductUserId pointer as hash
 	return ::GetTypeHash((void*)ProductUserId);
 }
+
+void FInternetAddrEOS::SetSocketName(const FString& InSocketName)
+{
+	FTCHARToUTF8 SocketNameUTF8(*InSocketName);
+	FCStringAnsi::Strncpy(SocketName, SocketNameUTF8.Get(), 32);
+	SocketName[32] = '\0'; // Ensure null termination
+}
+
+FString FInternetAddrEOS::GetSocketName() const
+{
+	return FString(UTF8_TO_TCHAR(SocketName));
+}
+
+void FInternetAddrEOS::SetChannel(uint8 InChannel)
+{
+	Channel = InChannel;
+}
+
+uint8 FInternetAddrEOS::GetChannel() const
+{
+	return Channel;
+}

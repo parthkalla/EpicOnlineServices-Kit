@@ -17,7 +17,7 @@ public class EOSKitRTC : ModuleRules
 			"VoiceChat",
 			"OnlineSubsystem",
 			"OnlineSubsystemUtils",
-			"EOSSDK",
+			"EOSKitSDK",
 			"EOSKitShared",
 		});
 

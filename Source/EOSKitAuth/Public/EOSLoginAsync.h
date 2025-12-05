@@ -6,6 +6,7 @@
 #include "Kismet/BlueprintAsyncActionBase.h"
 #include "eos_auth.h"
 #include "eos_connect.h"
+#include "EOSConnectLoginWithOnlineSubsystemAsync.h"
 #include "EOSLoginAsync.generated.h"
 
 /** Delegate for login completion with detailed outputs */
@@ -98,24 +99,24 @@ class EOSKITAUTH_API UEOSLoginUsingConnectInterface : public UBlueprintAsyncActi
 	GENERATED_BODY()
 
 public:
-	UPROPERTY(BlueprintAssignable)
+	UPROPERTY(BlueprintAssignable, DisplayName="Success")
 	FOnEOSLoginComplete OnSuccess;
 
-	UPROPERTY(BlueprintAssignable)
+	UPROPERTY(BlueprintAssignable, DisplayName="Failure")
 	FOnEOSLoginComplete OnFail;
 
 	/**
 	 * Login using Connect Interface (Product User ID)
-	 * @param LoginMethod - Login method (Device ID recommended)
-	 * @param DisplayName - Display name for the user
-	 * @param Token - Authentication token (if needed)
+	 * @param LoginMethod - Login method (Device ID recommended for standalone mode)
+	 * @param DisplayName - Display name for the user (used as Device Model for Device ID)
+	 * @param Token - Authentication token (optional, leave empty for Device ID)
 	 */
-	UFUNCTION(BlueprintCallable, meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContext Object", DisplayName = "Login using Connect Interface"), Category = "EOSKit|Auth")
+	UFUNCTION(BlueprintCallable, meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject", DisplayName = "Login using Connect Interface"), Category = "EOSKit|Auth")
 	static UEOSLoginUsingConnectInterface* LoginUsingConnectInterface(
 		UObject* WorldContextObject,
-		FString LoginMethod,
-		FString DisplayName,
-		FString Token
+		EEOSKitExternalCredentialType LoginMethod = EEOSKitExternalCredentialType::DeviceID,
+		FString DisplayName = TEXT("Player"),
+		FString Token = TEXT("")
 	);
 
 	virtual void Activate() override;
@@ -125,8 +126,14 @@ private:
 	static void EOS_CALL OnCreateUserComplete(const EOS_Connect_CreateUserCallbackInfo* Data);
 	static void EOS_CALL OnCreateDeviceIdComplete(const EOS_Connect_CreateDeviceIdCallbackInfo* Data);
 
-	UObject* WorldContextObject;
-	FString LoginMethod;
+	UPROPERTY()
+	TObjectPtr<UObject> WorldContextObject;
+	
+	EEOSKitExternalCredentialType LoginMethod;
 	FString DisplayName;
 	FString Token;
+	
+	// Keep strings alive for async EOS calls
+	TArray<uint8> DeviceModelAnsi;
+	TArray<uint8> DisplayNameAnsi;
 };

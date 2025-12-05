@@ -52,13 +52,13 @@ struct FEOSLobbyInfo
 	FString LobbyId;
 
 	UPROPERTY(BlueprintReadOnly, Category = "EOSKit")
-	int32 MaxPlayers;
+	int32 MaxPlayers = 0;
 
 	UPROPERTY(BlueprintReadOnly, Category = "EOSKit")
-	int32 CurrentPlayers;
+	int32 CurrentPlayers = 0;
 
 	UPROPERTY(BlueprintReadOnly, Category = "EOSKit")
-	bool bIsPublic;
+	bool bIsPublic = false;
 
 	UPROPERTY(BlueprintReadOnly, Category = "EOSKit")
 	FString BucketId;
@@ -85,10 +85,10 @@ struct FEOSLeaderboardRecord
 	FString UserId;
 
 	UPROPERTY(BlueprintReadOnly, Category = "EOSKit")
-	int32 Rank;
+	int32 Rank = 0;
 
 	UPROPERTY(BlueprintReadOnly, Category = "EOSKit")
-	int32 Score;
+	int32 Score = 0;
 
 	UPROPERTY(BlueprintReadOnly, Category = "EOSKit")
 	FString UserDisplayName;

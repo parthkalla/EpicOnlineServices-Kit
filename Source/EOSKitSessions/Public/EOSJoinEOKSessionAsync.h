@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Kismet/BlueprintAsyncActionBase.h"
+#include "Interfaces/OnlineSessionInterface.h"
 #include "EOSKitSessionStructs.h"
 #include "EOSJoinEOKSessionAsync.generated.h"
 
@@ -25,13 +26,15 @@ public:
 	FJoinEOKSession_Delegate OnFail;
 
 	/**
-	 * Join a session using EOS SDK
+	 * Join a session using OnlineSubsystem (like EIK)
+	 * @param WorldContextObject - The world context object
 	 * @param SessionName - Name of the local session to create
 	 * @param SessionResult - The session search result to join
 	 * @param bUsePresence - Whether to use presence when joining
 	 */
-	UFUNCTION(BlueprintCallable, DisplayName="Join EOK Session", meta = (BlueprintInternalUseOnly = "true"), Category="EOSKit|Sessions")
+	UFUNCTION(BlueprintCallable, DisplayName="Join EOK Session", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject"), Category="EOSKit|Sessions")
 	static UEOSJoinEOKSessionAsync* JoinEOKSession(
+		UObject* WorldContextObject,
 		FName SessionName,
 		FEOSKitSessionFindResult SessionResult,
 		bool bUsePresence = true
@@ -40,8 +43,12 @@ public:
 	virtual void Activate() override;
 
 	void JoinSession();
+	void OnJoinSessionCompleted(FName SessionName, EOnJoinSessionCompleteResult::Type Result);
 
 private:
+	UPROPERTY()
+	TObjectPtr<UObject> CachedWorldContextObject;
+	
 	FName VSessionName;
 	FEOSKitSessionFindResult SessionResult;
 	bool bUsePresence;

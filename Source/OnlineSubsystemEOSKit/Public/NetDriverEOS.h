@@ -10,14 +10,16 @@
  * Net driver implementation for EOS P2P networking
  * Handles multiplayer replication using Epic Online Services P2P interface
  */
-UCLASS(transient, config=Engine)
-class ONLINESUBSYSTEMEOSKIT_API UNetDriverEOS : public UIpNetDriver
-{
-	GENERATED_BODY()
+	UCLASS(transient, config=Engine, DisplayName="NetDriverEOSKit")
+	class ONLINESUBSYSTEMEOSKIT_API UNetDriverEOS : public UIpNetDriver
+	{
+		GENERATED_BODY()
 
-public:
+	public:
+		UNetDriverEOS(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
 	//~ Begin UNetDriver Interface
 	virtual bool IsAvailable() const override;
+	virtual ISocketSubsystem* GetSocketSubsystem() override;
 	virtual bool InitBase(bool bInitAsClient, FNetworkNotify* InNotify, const FURL& URL, bool bReuseAddressAndPort, FString& Error) override;
 	virtual bool InitConnect(FNetworkNotify* InNotify, const FURL& ConnectURL, FString& Error) override;
 	virtual bool InitListen(FNetworkNotify* InNotify, FURL& LocalURL, bool bReuseAddressAndPort, FString& Error) override;

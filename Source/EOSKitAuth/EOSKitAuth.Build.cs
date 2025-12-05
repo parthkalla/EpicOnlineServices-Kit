@@ -14,7 +14,7 @@ public class EOSKitAuth : ModuleRules
 			"Engine",
 			"OnlineSubsystem",
 			"OnlineSubsystemUtils",
-			"EOSSDK",
+			"EOSKitSDK",
 			"EOSKitShared",
 		});
 

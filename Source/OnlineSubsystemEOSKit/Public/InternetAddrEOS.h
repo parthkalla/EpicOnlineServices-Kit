@@ -14,7 +14,9 @@ class FInternetAddrEOS : public FInternetAddr
 public:
 	FInternetAddrEOS()
 		: ProductUserId(nullptr)
+		, Channel(0)
 	{
+		SocketName[0] = '\0';
 	}
 
 	/**
@@ -27,6 +29,26 @@ public:
 	 * Gets the Product User ID handle
 	 */
 	EOS_ProductUserId GetProductUserId() const { return ProductUserId; }
+
+	/**
+	 * Sets the socket name (for EOS P2P socket identification)
+	 */
+	void SetSocketName(const FString& InSocketName);
+
+	/**
+	 * Gets the socket name
+	 */
+	FString GetSocketName() const;
+
+	/**
+	 * Sets the channel (for EOS P2P communication)
+	 */
+	void SetChannel(uint8 InChannel);
+
+	/**
+	 * Gets the channel
+	 */
+	uint8 GetChannel() const;
 
 	//~ Begin FInternetAddr Interface
 	virtual void SetIp(uint32 InAddr) override;
@@ -47,4 +69,10 @@ public:
 
 private:
 	EOS_ProductUserId ProductUserId;
+	
+	/** Socket name for EOS P2P (max 33 chars including null terminator) */
+	char SocketName[33];
+	
+	/** Channel for EOS P2P communication */
+	uint8 Channel;
 };

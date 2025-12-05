@@ -48,7 +48,16 @@ public:
 	 */
 	void EndPIE(const bool bIsSimulating);
 
+	/**
+	 * Called when the game/application is shutting down
+	 * Destroys all active sessions before exit
+	 */
+	void OnApplicationWillTerminate();
+
 private:
 	/** Whether PIE is currently active */
 	bool bIsPIEActive = false;
+	
+	/** Delegate handle for application exit */
+	FDelegateHandle OnExitDelegateHandle;
 };

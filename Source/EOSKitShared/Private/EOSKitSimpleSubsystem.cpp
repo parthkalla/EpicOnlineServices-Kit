@@ -18,6 +18,24 @@ void UEOSKitSimpleSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 
 void UEOSKitSimpleSubsystem::Deinitialize()
 {
+	// Clean up any active sessions before shutting down
+	if (const IOnlineSubsystem* Subsystem = IOnlineSubsystem::Get())
+	{
+		if (const IOnlineSessionPtr SessionInterface = Subsystem->GetSessionInterface())
+		{
+			// Try to destroy common session names
+			TArray<FName> CommonSessionNames = { NAME_GameSession, NAME_PartySession, FName(TEXT("Modified_EOS_Session")), FName(TEXT("Modified_EOS_Lobby")) };
+			for (const FName& SessionName : CommonSessionNames)
+			{
+				if (FNamedOnlineSession* Session = SessionInterface->GetNamedSession(SessionName))
+				{
+					UE_LOG(LogTemp, Log, TEXT("EOSKit: Destroying session '%s' on subsystem shutdown"), *SessionName.ToString());
+					SessionInterface->DestroySession(SessionName);
+				}
+			}
+		}
+	}
+
 	bIsInitialized = false;
 	UE_LOG(LogTemp, Log, TEXT("EOSKit: Simple Subsystem Deinitialized"));
 	Super::Deinitialize();

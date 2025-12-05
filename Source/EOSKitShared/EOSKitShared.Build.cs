@@ -31,7 +31,7 @@ public class EOSKitShared : ModuleRules
             "CoreUObject",
             "Engine",
             "Projects",
-            "EOSSDK",
+            "EOSKitSDK",
             "Json",
             "JsonUtilities",
             "OnlineSubsystem",

@@ -35,10 +35,10 @@ struct FEOSAchievementDefinition
 	FString UnlockedIconUrl;
 
 	UPROPERTY(BlueprintReadOnly, Category = "EOSKit|Achievements")
-	bool bIsHidden;
+	bool bIsHidden = false;
 
 	UPROPERTY(BlueprintReadOnly, Category = "EOSKit|Achievements")
-	int32 StatThresholdCount;
+	int32 StatThresholdCount = 0;
 };
 
 /**
@@ -53,13 +53,13 @@ struct FEOSPlayerAchievement
 	FString AchievementId;
 
 	UPROPERTY(BlueprintReadOnly, Category = "EOSKit|Achievements")
-	float Progress;
+	float Progress = 0.0f;
 
 	UPROPERTY(BlueprintReadOnly, Category = "EOSKit|Achievements")
 	FDateTime UnlockTime;
 
 	UPROPERTY(BlueprintReadOnly, Category = "EOSKit|Achievements")
-	bool bIsUnlocked;
+	bool bIsUnlocked = false;
 
 	UPROPERTY(BlueprintReadOnly, Category = "EOSKit|Achievements")
 	FString DisplayName;

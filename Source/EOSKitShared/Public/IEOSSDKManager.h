@@ -2,7 +2,11 @@
 
 #pragma once
 
-#include "CoreMinimal.h"
+#include <cstdint>
+
+#ifndef EOSKITSHARED_API
+#define EOSKITSHARED_API
+#endif
 
 /**
  * Pure virtual interface for EOS SDK management
@@ -35,21 +39,7 @@ public:
 	 * Get the tick budget in milliseconds
 	 * @return Tick budget for EOS platform updates
 	 */
-	virtual int32 GetTickBudgetMs() const = 0;
-
-	/**
-	 * Register a ticker for periodic updates
-	 * @param TickDelegate The delegate to call on tick
-	 * @param TickInterval Interval in seconds between ticks
-	 * @return Handle to the registered ticker
-	 */
-	virtual FTSTicker::FDelegateHandle RegisterTicker(FTickerDelegate TickDelegate, float TickInterval) = 0;
-
-	/**
-	 * Unregister a previously registered ticker
-	 * @param Handle The handle returned from RegisterTicker
-	 */
-	virtual void UnregisterTicker(FTSTicker::FDelegateHandle Handle) = 0;
+	virtual std::int32_t GetTickBudgetMs() const = 0;
 
 	/**
 	 * Get the singleton instance of the SDK manager
@@ -72,3 +62,9 @@ public:
 protected:
 	static IEOSSDKManager* Instance;
 };
+
+namespace EOSKitSDK
+{
+	EOSKITSHARED_API IEOSSDKManager* CreateSDKManager();
+	EOSKITSHARED_API void DestroySDKManager();
+}

@@ -6,6 +6,7 @@
 #include "Interfaces/OnlineSessionInterface.h"
 #include "OnlineSessionSettings.h"
 #include "OnlineSubsystemEOSKit.h"
+#include "OnlineSubsystemTypes.h"
 
 #if WITH_EOS_SDK
 	#include "eos_sessions.h"
@@ -13,6 +14,61 @@
 #endif
 
 class FOnlineSubsystemEOSKit;
+
+class FOnlineSessionInfoEOSKit : public FOnlineSessionInfo
+{
+public:
+	FOnlineSessionInfoEOSKit()
+		: SessionId(TEXT(""))
+		, HostAddr(TEXT("127.0.0.1"))
+		, SessionHandle(nullptr)
+	{
+		SessionIdUnique = FUniqueNetIdString::Create(SessionId, FName(TEXT("EOS")));
+	}
+
+	explicit FOnlineSessionInfoEOSKit(const FString& InHostAddr)
+		: SessionId(TEXT(""))
+		, HostAddr(InHostAddr)
+		, SessionHandle(nullptr)
+	{
+		SessionIdUnique = FUniqueNetIdString::Create(SessionId, FName(TEXT("EOS")));
+	}
+
+	// Copy constructor
+	FOnlineSessionInfoEOSKit(const FOnlineSessionInfoEOSKit& Other)
+		: SessionId(Other.SessionId)
+		, HostAddr(Other.HostAddr)
+		, EOSAddress(Other.EOSAddress) // CRITICAL: Copy EOSAddress for P2P connections
+		, SessionHandle(Other.SessionHandle)
+	{
+		SessionIdUnique = FUniqueNetIdString::Create(SessionId, FName(TEXT("EOS")));
+	}
+
+	FString SessionId;
+	FString HostAddr;
+	FString EOSAddress; // EOS P2P connection string (format: EOS:ProductUserId:SocketName:Channel)
+	FUniqueNetIdPtr SessionIdUnique;
+	
+#if WITH_EOS_SDK
+	// EOS session details handle (required for joining sessions)
+	EOS_HSessionDetails SessionHandle;
+#else
+	void* SessionHandle;
+#endif
+
+	void SetSessionId(const FString& InSessionId)
+	{
+		SessionId = InSessionId;
+		SessionIdUnique = FUniqueNetIdString::Create(InSessionId, FName(TEXT("EOS")));
+	}
+
+	virtual const uint8* GetBytes() const override { return nullptr; }
+	virtual int32 GetSize() const override { return 0; }
+	virtual bool IsValid() const override { return !SessionId.IsEmpty(); }
+	virtual FString ToString() const override { return SessionId; }
+	virtual FString ToDebugString() const override { return FString::Printf(TEXT("%s (%s)"), *SessionId, *HostAddr); }
+	virtual const FUniqueNetId& GetSessionId() const override { check(SessionIdUnique.IsValid()); return *SessionIdUnique; }
+};
 
 #if WITH_EOS_SDK
 
@@ -100,6 +156,11 @@ private:
 	FOnJoinSessionCompleteDelegate OnJoinSessionCompleteDelegate;
 	FOnRegisterLocalPlayerCompleteDelegate OnRegisterLocalPlayerCompleteDelegate;
 	FOnUnregisterLocalPlayerCompleteDelegate OnUnregisterLocalPlayerCompleteDelegate;
+
+	uint32 CreateEOSSessionInternal(int32 HostingPlayerNum, FNamedOnlineSession* Session);
+	void RegisterLocalPlayers(FNamedOnlineSession* Session);
+	void HandleCreateSessionCallback(FName SessionName, const EOS_Sessions_UpdateSessionCallbackInfo* Data);
+	EOS_ProductUserId GetProductUserIdForSession(FNamedOnlineSession* Session) const;
 };
 
 #endif // WITH_EOS_SDK

@@ -246,6 +246,9 @@ class EOSKITSHARED_API UEOSKitSubsystem : public UGameInstanceSubsystem
 
 public:
 	UEOSKitSubsystem();
+	
+	// USubsystem interface
+	virtual void Deinitialize() override;
 
 	// ========================================
 	// Login Functions
@@ -434,6 +437,12 @@ public:
 	 */
 	EOS_ProductUserId GetProductUserId(int32 LocalUserNum = 0) const;
 
+	/**
+	 * Get the EOS UserInfo Handle
+	 * @return EOS_HUserInfo handle or nullptr if not available
+	 */
+	EOS_HUserInfo GetUserInfoHandle() const;
+
 	// ========================================
 	// Callback Functions (Internal)
 	// ========================================
@@ -487,4 +496,7 @@ private:
 
 	// Leaderboard
 	TSharedRef<FOnlineLeaderboardRead> ReadRef;
+	
+	// Track active sessions created via SDK for cleanup
+	TArray<FString> ActiveSDKSessionNames;
 };
