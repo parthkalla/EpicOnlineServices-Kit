@@ -41,7 +41,7 @@ void UEOSFindEOKSessionsAsync::Activate()
 void UEOSFindEOKSessionsAsync::FindSession()
 {
 	UE_LOG(LogTemp, Warning, TEXT("EOSKit: ========================================"));
-	UE_LOG(LogTemp, Warning, TEXT("EOSKit: Finding EOS Sessions via OnlineSubsystem (like EIK)"));
+	UE_LOG(LogTemp, Warning, TEXT("EOSKit: Finding EOS Sessions via OnlineSubsystem"));
 	UE_LOG(LogTemp, Warning, TEXT("EOSKit: Max Results: %d"), I_MaxResults);
 	UE_LOG(LogTemp, Warning, TEXT("EOSKit: ========================================"));
 	

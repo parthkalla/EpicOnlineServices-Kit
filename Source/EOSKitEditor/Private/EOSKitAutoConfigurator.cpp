@@ -258,11 +258,60 @@ bool UEOSKitAutoConfigurator::UpdateOnlineSubsystemConfig()
 		bConfigChanged = true;
 	}
 
-	// Ensure [/Script/OnlineSubsystemEOSKit.OnlineSessionEOSKit] section exists with P2P settings
-	if (!EngineIniText.Contains(TEXT("[/Script/OnlineSubsystemEOSKit.OnlineSessionEOSKit]")))
+	// Ensure [/Script/OnlineSubsystemEOSKit.OnlineSessionEOSKit] section exists with lobby + P2P settings
+	const FString OnlineSessionSection = TEXT("[/Script/OnlineSubsystemEOSKit.OnlineSessionEOSKit]");
+	if (!EngineIniText.Contains(OnlineSessionSection))
 	{
-		EngineIniText += TEXT("\n[/Script/OnlineSubsystemEOSKit.OnlineSessionEOSKit]\nbUseLobbies=false\nbUseP2PNetworking=true\n");
+		EngineIniText += TEXT("\n[/Script/OnlineSubsystemEOSKit.OnlineSessionEOSKit]\nbUseLobbies=true\nbUseP2PNetworking=true\n");
 		bConfigChanged = true;
+	}
+	else
+	{
+		auto EnsureOnlineSessionSetting = [&](const FString& Key, const FString& DesiredValue)
+		{
+			const FString DesiredLine = FString::Printf(TEXT("%s=%s"), *Key, *DesiredValue);
+			const FString SettingPrefix = FString::Printf(TEXT("%s="), *Key);
+
+			int32 SectionPos = EngineIniText.Find(OnlineSessionSection);
+			if (SectionPos == INDEX_NONE)
+			{
+				return;
+			}
+
+			int32 SectionEnd = EngineIniText.Find(TEXT("\n["), SectionPos + OnlineSessionSection.Len());
+			if (SectionEnd == INDEX_NONE)
+			{
+				SectionEnd = EngineIniText.Len();
+			}
+
+			const FString SectionText = EngineIniText.Mid(SectionPos, SectionEnd - SectionPos);
+			if (SectionText.Contains(DesiredLine))
+			{
+				return;
+			}
+
+			int32 SettingPos = EngineIniText.Find(*SettingPrefix, ESearchCase::IgnoreCase, ESearchDir::FromStart, SectionPos);
+			if (SettingPos != INDEX_NONE && SettingPos < SectionEnd)
+			{
+				int32 LineEnd = EngineIniText.Find(TEXT("\n"), SettingPos);
+				if (LineEnd == INDEX_NONE)
+				{
+					LineEnd = EngineIniText.Len();
+				}
+
+				FString OldLine = EngineIniText.Mid(SettingPos, LineEnd - SettingPos);
+				EngineIniText.ReplaceInline(*OldLine, *DesiredLine);
+			}
+			else
+			{
+				EngineIniText.InsertAt(SectionEnd, FString::Printf(TEXT("%s\n"), *DesiredLine));
+			}
+
+			bConfigChanged = true;
+		};
+
+		EnsureOnlineSessionSetting(TEXT("bUseLobbies"), TEXT("true"));
+		EnsureOnlineSessionSetting(TEXT("bUseP2PNetworking"), TEXT("true"));
 	}
 
 	// Ensure [/Script/Engine.GameEngine] section exists with NetDriverDefinitions

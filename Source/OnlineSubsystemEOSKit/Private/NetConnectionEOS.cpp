@@ -186,7 +186,16 @@ void UNetConnectionEOS::InitRemoteConnection(UNetDriver* InDriver, FSocket* InSo
 		}
 	}
 
+	// CRITICAL: Call Super AFTER setting PlayerId
+	// This ensures the engine's PreLogin validation sees the correct PlayerId
 	Super::InitRemoteConnection(InDriver, InSocket, InURL, InRemoteAddr, InState, InMaxPacket, InPacketOverhead);
+	
+	// After Super, verify PlayerId is still set correctly
+	if (bHasP2PSession && PlayerId.IsValid())
+	{
+		UE_LOG(LogNet, Warning, TEXT("UNetConnectionEOS::InitRemoteConnection: ✅ PlayerId verified after Super - %s (Type: %s)"), 
+			*PlayerId->ToString(), *PlayerId->GetType().ToString());
+	}
 }
 
 void UNetConnectionEOS::CleanUp()
@@ -197,32 +206,6 @@ void UNetConnectionEOS::CleanUp()
 	{
 		DestroyEOSConnection();
 	}
-}
-
-bool UNetConnectionEOS::LowLevelValidateRemoteUniqueId(FUniqueNetIdRepl& UniqueId)
-{
-	// CRITICAL: Bypass IP-based validation for EOS P2P connections
-	// The parent UIpConnection would try to validate the UniqueNetId against the IP address,
-	// which fails for EOS P2P because the "address" is a ProductUserId string, not an IP address.
-	// EOS P2P socket authentication already handles security, so we trust valid EOS IDs.
-	
-	UE_LOG(LogTemp, Warning, TEXT("✅ UNetConnectionEOS::LowLevelValidateRemoteUniqueId: CALLED! Validating ID - IsValid: %d, bHasP2PSession: %d"), 
-		UniqueId.IsValid() ? 1 : 0, bHasP2PSession ? 1 : 0);
-	
-	if (UniqueId.IsValid())
-	{
-		// Access the underlying UniqueNetId using operator* (returns reference)
-		const FUniqueNetId& UniqueNetId = *UniqueId;
-		FString UniqueIdStr = UniqueNetId.ToString();
-		UE_LOG(LogTemp, Warning, TEXT("✅ UNetConnectionEOS::LowLevelValidateRemoteUniqueId: Validating ID: %s"), *UniqueIdStr);
-		
-		// If it is valid, we TRUST EOS. We return TRUE to skip the IP check.
-		UE_LOG(LogTemp, Warning, TEXT("✅ UNetConnectionEOS::LowLevelValidateRemoteUniqueId: Returning TRUE - bypassing IP validation"));
-		return true;
-	}
-	
-	UE_LOG(LogTemp, Warning, TEXT("❌ UNetConnectionEOS::LowLevelValidateRemoteUniqueId: UniqueId is INVALID - returning false"));
-	return false;
 }
 
 void UNetConnectionEOS::DestroyEOSConnection()

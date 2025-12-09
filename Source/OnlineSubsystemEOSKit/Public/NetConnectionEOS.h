@@ -21,12 +21,6 @@ public:
 	virtual void CleanUp() override;
 //~ End UNetConnection Interface
 
-protected:
-	// Override to bypass IP-based validation for EOS P2P connections
-	// This method is called during PreLogin validation to check if the remote UniqueNetId is valid
-	// Note: This method may not exist in base class, so we declare it without override
-	virtual bool LowLevelValidateRemoteUniqueId(FUniqueNetIdRepl& UniqueId);
-
 	void DestroyEOSConnection();
 
 public:
