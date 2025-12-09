@@ -1,367 +1,741 @@
 // Copyright (C) 2024, All Rights Reserved.
 
 #include "SocketEOS.h"
-#include "Async/Async.h"
+#include "SocketTypes.h"
+#include "SocketSubsystemEOS.h"
 
-FSocketEOS::FSocketEOS(const FString& InSocketDescription, EOS_HP2P InP2PHandle, EOS_ProductUserId InLocalUserId)
-	: FSocket(SOCKTYPE_Datagram, InSocketDescription, FName(TEXT("EOS")))
-	, P2PHandle(InP2PHandle)
-	, LocalUserId(InLocalUserId)
-	, RemoteUserId(nullptr)
-	, SocketDescription(InSocketDescription)
-	, bIsNonBlocking(true)
-	, ConnectionState(SCS_NotConnected)
-	, ReliabilityMode(EOS_EPacketReliability::EOS_PR_UnreliableUnordered)
+#if WITH_EOS_SDK
+	#include "eos_p2p.h"
+#endif
+
+#if WANTS_NP_LOGGING
+
+#include "Windows/AllowWindowsPlatformTypes.h"
+THIRD_PARTY_INCLUDES_START
+#include <Windows.h>
+THIRD_PARTY_INCLUDES_END
+
+const TCHAR* GetLogPrefix()
 {
+	static FString Prefix;
+	if (Prefix.Len() == 0)
+	{
+		FParse::Value(FCommandLine::Get(), TEXT("LogPrefix="), Prefix);
+		if (Prefix.Len() == 0)
+		{
+			Prefix = TEXT("Unknown");
+		}
+	}
+	return *Prefix;
+}
+
+void NpLog(const TCHAR* Msg)
+{
+	static HWND EditWindow = NULL;
+	// Get the edit window so we can send messages to it
+	if (EditWindow == NULL)
+	{
+		HWND MainWindow = FindWindowW(NULL, L"Untitled - Notepad");
+		if (MainWindow == NULL)
+		{
+			MainWindow = FindWindowW(NULL, L"*Untitled - Notepad");
+		}
+		if (MainWindow != NULL)
+		{
+			EditWindow = FindWindowExW(MainWindow, NULL, L"Edit", NULL);
+		}
+	}
+	if (EditWindow != NULL)
+	{
+		SendMessageW(EditWindow, EM_REPLACESEL, TRUE, (LPARAM)Msg);
+	}
+}
+
+#include "Windows/HideWindowsPlatformTypes.h"
+#endif
+
+// Helper function to convert ProductUserId to string
+static FString MakeStringFromProductUserId(EOS_ProductUserId ProductUserId)
+{
+	char PuidBuffer[64];
+	int32 BufferLen = 64;
+	if (EOS_ProductUserId_ToString(ProductUserId, PuidBuffer, &BufferLen) == EOS_EResult::EOS_Success)
+	{
+		return UTF8_TO_TCHAR(PuidBuffer);
+	}
+	return TEXT("Invalid");
+}
+
+FSocketEOS::FSocketEOS(FSocketSubsystemEOS& InSocketSubsystem, const FString& InSocketDescription)
+	: FSocket(ESocketType::SOCKTYPE_Datagram, InSocketDescription, NAME_None)
+	, SocketSubsystem(InSocketSubsystem)
+	, bIsListening(false)
+#if WITH_EOS_SDK
+	, ConnectNotifyCallback(nullptr)
+	, ConnectNotifyId(EOS_INVALID_NOTIFICATIONID)
+	, ClosedNotifyCallback(nullptr)
+	, ClosedNotifyId(EOS_INVALID_NOTIFICATIONID)
+#endif
+{
+	CallbackAliveTracker = MakeShared<FCallbackBase>();
 }
 
 FSocketEOS::~FSocketEOS()
 {
 	Close();
+
+	if (LocalAddress.IsValid())
+	{
+		SocketSubsystem.UnbindChannel(LocalAddress);
+		LocalAddress = FInternetAddrEOS();
+	}
+	CallbackAliveTracker = nullptr;
 }
 
 bool FSocketEOS::Shutdown(ESocketShutdownMode Mode)
 {
-	// For EOS P2P, shutdown is the same as close
-	return Close();
+	SocketSubsystem.SetLastSocketError(ESocketErrors::SE_EOPNOTSUPP);
+	return false;
 }
 
 bool FSocketEOS::Close()
 {
-	if (P2PHandle && RemoteUserId)
-	{
-		EOS_P2P_CloseConnectionOptions CloseOptions = {};
-		CloseOptions.ApiVersion = EOS_P2P_CLOSECONNECTION_API_LATEST;
-		CloseOptions.LocalUserId = LocalUserId;
-		CloseOptions.RemoteUserId = RemoteUserId;
-		CloseOptions.SocketId = nullptr; // Use default socket ID
+	check(IsInGameThread() && "p2p does not support multithreading");
 
-		EOS_P2P_CloseConnection(P2PHandle, &CloseOptions);
+#if WITH_EOS_SDK
+	// Only remove notifications if they were actually registered and the socket was bound
+	if (bIsListening && LocalAddress.IsValid())
+	{
+		EOS_HP2P P2PHandle = SocketSubsystem.GetP2PHandle();
+		if (P2PHandle != nullptr)
+		{
+			if (ConnectNotifyId != EOS_INVALID_NOTIFICATIONID)
+			{
+				// EOS_P2P_RemoveNotifyPeerConnectionRequest returns void, so we just call it
+				EOS_P2P_RemoveNotifyPeerConnectionRequest(P2PHandle, ConnectNotifyId);
+				ConnectNotifyId = EOS_INVALID_NOTIFICATIONID;
+			}
+			
+			if (ClosedNotifyId != EOS_INVALID_NOTIFICATIONID)
+			{
+				// EOS_P2P_RemoveNotifyPeerConnectionClosed returns void, so we just call it
+				EOS_P2P_RemoveNotifyPeerConnectionClosed(P2PHandle, ClosedNotifyId);
+				ClosedNotifyId = EOS_INVALID_NOTIFICATIONID;
+			}
+		}
+	}
+	
+	// Clean up callbacks
+	if (ConnectNotifyCallback)
+	{
+		delete ConnectNotifyCallback;
+		ConnectNotifyCallback = nullptr;
+	}
+	if (ClosedNotifyCallback)
+	{
+		delete ClosedNotifyCallback;
+		ClosedNotifyCallback = nullptr;
 	}
 
-	ConnectionState = SCS_NotConnected;
+	if (LocalAddress.IsValid())
+	{
+		EOS_ProductUserId LocalUserId = SocketSubsystem.GetLocalUserId();
+		// Only close connections if we have a valid LocalUserId (Utils might be null during shutdown)
+		if (LocalUserId != nullptr)
+		{
+			EOS_P2P_SocketId SocketId = { };
+			SocketId.ApiVersion = EOS_P2P_SOCKETID_API_LATEST;
+			FCStringAnsi::Strcpy(SocketId.SocketName, LocalAddress.GetSocketName());
+
+			EOS_P2P_CloseConnectionsOptions Options = { };
+			Options.ApiVersion = EOS_P2P_CLOSECONNECTIONS_API_LATEST;
+			Options.LocalUserId = LocalUserId;
+			Options.SocketId = &SocketId;
+
+			EOS_EResult Result = EOS_P2P_CloseConnections(SocketSubsystem.GetP2PHandle(), &Options);
+
+			UE_LOG(LogSocketSubsystemEOS, Log, TEXT("Closing socket (%s) with result (%s)"), *LocalAddress.ToString(true), ANSI_TO_TCHAR(EOS_EResult_ToString(Result)));
+			NP_LOG(TEXT("[%s] - Closing socket (%s) with result (%s)\r\n"), GetLogPrefix(), *LocalAddress.ToString(true), ANSI_TO_TCHAR(EOS_EResult_ToString(Result)));
+
+			ClosedRemotes.Empty();
+		}
+	}
+#endif
 	return true;
 }
 
 bool FSocketEOS::Bind(const FInternetAddr& Addr)
 {
-	// EOS P2P doesn't require traditional binding
-	// The ProductUserId acts as the address
+	check(IsInGameThread() && "p2p does not support multithreading");
+
+	if (!Addr.IsValid())
+	{
+		UE_LOG(LogSocketSubsystemEOS, Warning, TEXT("Attempted to bind to invalid address. Address = (%s)"), *Addr.ToString(true));
+		SocketSubsystem.SetLastSocketError(ESocketErrors::SE_EADDRNOTAVAIL);
+		return false;
+	}
+
+	// Ensure we called Initialize so we know who we are
+	if (LocalAddress.GetRemoteUserId() != nullptr)
+	{
+		UE_LOG(LogSocketSubsystemEOS, Warning, TEXT("Attempted to bind on a socket that was not initialized. Address = (%s)"), *Addr.ToString(true));
+		SocketSubsystem.SetLastSocketError(ESocketErrors::SE_NOTINITIALISED);
+		return false;
+	}
+
+	// If we have a remote user id, we're already bound
+	if (LocalAddress.GetRemoteUserId() != nullptr)
+	{
+		UE_LOG(LogSocketSubsystemEOS, Warning, TEXT("Attempted to bind a socket that was already bound. ExistingAddress = (%s) NewAddress = (%s)"), *LocalAddress.ToString(true), *Addr.ToString(true));
+		SocketSubsystem.SetLastSocketError(ESocketErrors::SE_EADDRINUSE);
+		return false;
+	}
+
+	const FInternetAddrEOS& EOSAddr = static_cast<const FInternetAddrEOS&>(Addr);
+	if (!SocketSubsystem.BindChannel(EOSAddr))
+	{
+		UE_LOG(LogSocketSubsystemEOS, Warning, TEXT("Attempted to bind a socket to a port in use. NewAddress = (%s)"), *Addr.ToString(true));
+		// BindChannel sets our LastSocketError
+		return false;
+	}
+
+#if WITH_EOS_SDK
+	EOS_ProductUserId LocalUserId = LocalAddress.GetLocalUserId();
+#else
+	void* LocalUserId = LocalAddress.GetLocalUserId();
+#endif
+	LocalAddress = EOSAddr;
+	LocalAddress.SetLocalUserId(LocalUserId);
+
+	UE_LOG(LogSocketSubsystemEOS, Verbose, TEXT("Successfully bound socket to address (%s)"), *LocalAddress.ToString(true));
+	NP_LOG(TEXT("[%s] - Successfully bound socket to address (%s)\r\n"), GetLogPrefix(), *LocalAddress.ToString(true));
 	return true;
 }
 
 bool FSocketEOS::Connect(const FInternetAddr& Addr)
 {
-	const FInternetAddrEOS& EOSAddr = static_cast<const FInternetAddrEOS&>(Addr);
-	RemoteUserId = EOSAddr.GetProductUserId();
-
-	if (RemoteUserId)
-	{
-		ConnectionState = SCS_Connected;
-		return true;
-	}
-
+	/** Not supported - connectionless (UDP) only */
+	SocketSubsystem.SetLastSocketError(ESocketErrors::SE_EOPNOTSUPP);
 	return false;
 }
 
-bool FSocketEOS::Listen(int32 MaxBacklog)
+bool FSocketEOS::Listen(int32)
 {
-	// EOS P2P handles listening automatically
-	ConnectionState = SCS_Connected;
+	check(IsInGameThread() && "p2p does not support multithreading");
+
+	if (!LocalAddress.IsValid())
+	{
+		UE_LOG(LogSocketSubsystemEOS, Warning, TEXT("Attempted to listen without a bound address. Address = (%s)"), *LocalAddress.ToString(true));
+		SocketSubsystem.SetLastSocketError(ESocketErrors::SE_EADDRINUSE);
+		return false;
+	}
+
+#if WITH_EOS_SDK
+	// Add listener for inbound connections
+	EOS_P2P_SocketId SocketId = { };
+	SocketId.ApiVersion = EOS_P2P_SOCKETID_API_LATEST;
+	FCStringAnsi::Strcpy(SocketId.SocketName, LocalAddress.GetSocketName());
+
+	EOS_P2P_AddNotifyPeerConnectionRequestOptions Options = { };
+	Options.ApiVersion = EOS_P2P_ADDNOTIFYPEERCONNECTIONREQUEST_API_LATEST;
+	Options.LocalUserId = LocalAddress.GetLocalUserId();
+	Options.SocketId = &SocketId;
+
+#if ENGINE_MAJOR_VERSION == 5
+	ConnectNotifyCallback = new FConnectNotifyCallback(CallbackAliveTracker);
+#else
+	ConnectNotifyCallback = new FConnectNotifyCallback();
+#endif
+	ConnectNotifyCallback->CallbackLambda = [this](const EOS_P2P_OnIncomingConnectionRequestInfo* Info)
+	{
+		char PuidBuffer[64];
+		int32 BufferLen = 64;
+		if (EOS_ProductUserId_ToString(Info->RemoteUserId, PuidBuffer, &BufferLen) != EOS_EResult::EOS_Success)
+		{
+			PuidBuffer[0] = '\0';
+		}
+		FString RemoteUser(PuidBuffer);
+
+		if (Info->LocalUserId == LocalAddress.GetLocalUserId() && FCStringAnsi::Stricmp(Info->SocketId->SocketName, LocalAddress.GetSocketName()) == 0)
+		{
+			// In case they disconnected and then reconnected, remove them from our closed list
+			FInternetAddrEOS RemoteAddress(Info->RemoteUserId, Info->SocketId->SocketName, LocalAddress.GetChannel());
+			RemoteAddress.SetLocalUserId(LocalAddress.GetLocalUserId());
+			ClosedRemotes.Remove(RemoteAddress);
+
+			EOS_P2P_SocketId SocketId = { };
+			SocketId.ApiVersion = EOS_P2P_SOCKETID_API_LATEST;
+			FCStringAnsi::Strcpy(SocketId.SocketName, Info->SocketId->SocketName);
+
+			EOS_P2P_AcceptConnectionOptions AcceptOptions = { };
+			AcceptOptions.ApiVersion = EOS_P2P_ACCEPTCONNECTION_API_LATEST;
+			AcceptOptions.LocalUserId = LocalAddress.GetLocalUserId();
+			AcceptOptions.RemoteUserId = Info->RemoteUserId;
+			AcceptOptions.SocketId = &SocketId;
+			EOS_EResult AcceptResult = EOS_P2P_AcceptConnection(SocketSubsystem.GetP2PHandle(), &AcceptOptions);
+			if (AcceptResult == EOS_EResult::EOS_Success)
+			{
+				UE_LOG(LogSocketSubsystemEOS, Verbose, TEXT("Accepting connection request from (%s) on socket (%s)"), *RemoteUser, UTF8_TO_TCHAR(Info->SocketId->SocketName));
+				NP_LOG(TEXT("[%s] - Accepting connection request from (%s) on socket (%s)\r\n"), GetLogPrefix(), *RemoteUser, UTF8_TO_TCHAR(Info->SocketId->SocketName));
+			}
+			else
+			{
+				UE_LOG(LogSocketSubsystemEOS, Error, TEXT("EOS_P2P_AcceptConnection from (%s) on socket (%s) failed with (%s)"), *RemoteUser, UTF8_TO_TCHAR(Info->SocketId->SocketName), ANSI_TO_TCHAR(EOS_EResult_ToString(AcceptResult)));
+				NP_LOG(TEXT("[%s] - EOS_P2P_AcceptConnection from (%s) on socket (%s) failed with (%s)\r\n"), GetLogPrefix(), *RemoteUser, UTF8_TO_TCHAR(Info->SocketId->SocketName), ANSI_TO_TCHAR(EOS_EResult_ToString(AcceptResult)));
+			}
+		}
+		else
+		{
+			UE_LOG(LogSocketSubsystemEOS, Warning, TEXT("Ignoring connection request from (%s) on socket (%s)"), *RemoteUser, UTF8_TO_TCHAR(Info->SocketId->SocketName));
+		}
+	};
+	
+	// ClientData is passed as a separate parameter, not in Options
+	ConnectNotifyId = EOS_P2P_AddNotifyPeerConnectionRequest(SocketSubsystem.GetP2PHandle(), &Options, ConnectNotifyCallback, ConnectNotifyCallback->GetCallbackPtr());
+
+	// Need to handle closures too
+	RegisterClosedNotification();
+#endif
+
+	bIsListening = true;
+
 	return true;
 }
 
 bool FSocketEOS::WaitForPendingConnection(bool& bHasPendingConnection, const FTimespan& WaitTime)
 {
-	// Check if there are any pending incoming connections
-	uint32 PendingDataSize = 0;
-	bHasPendingConnection = HasPendingData(PendingDataSize);
-	return true;
+	/** Not supported - connectionless (UDP) only */
+	SocketSubsystem.SetLastSocketError(ESocketErrors::SE_EOPNOTSUPP);
+	return false;
 }
 
 bool FSocketEOS::HasPendingData(uint32& PendingDataSize)
 {
-	if (!P2PHandle || !LocalUserId)
+	check(IsInGameThread() && "p2p does not support multithreading");
+
+	PendingDataSize = 0;
+
+#if WITH_EOS_SDK
+	EOS_P2P_GetNextReceivedPacketSizeOptions Options = { };
+	Options.ApiVersion = EOS_P2P_GETNEXTRECEIVEDPACKETSIZE_API_LATEST;
+	Options.LocalUserId = LocalAddress.GetLocalUserId();
+	uint8 Channel = LocalAddress.GetChannel();
+	Options.RequestedChannel = &Channel;
+
+	EOS_EResult Result = EOS_P2P_GetNextReceivedPacketSize(SocketSubsystem.GetP2PHandle(), &Options, &PendingDataSize);
+	if (Result == EOS_EResult::EOS_NotFound)
 	{
 		return false;
 	}
+	if (Result != EOS_EResult::EOS_Success)
+	{
+		UE_LOG(LogSocketSubsystemEOS, Warning, TEXT("Unable to check for data on address (%s) result code = (%s)"), *LocalAddress.ToString(true), ANSI_TO_TCHAR(EOS_EResult_ToString(Result)));
 
-	EOS_P2P_GetNextReceivedPacketSizeOptions SizeOptions = {};
-	SizeOptions.ApiVersion = EOS_P2P_GETNEXTRECEIVEDPACKETSIZE_API_LATEST;
-	SizeOptions.LocalUserId = LocalUserId;
-	SizeOptions.RequestedChannel = nullptr; // All channels
+		// @todo joeg - map EOS codes to UE4's
+		SocketSubsystem.SetLastSocketError(ESocketErrors::SE_EINVAL);
+		return false;
+	}
 
-	EOS_EResult Result = EOS_P2P_GetNextReceivedPacketSize(P2PHandle, &SizeOptions, &PendingDataSize);
-	return Result == EOS_EResult::EOS_Success && PendingDataSize > 0;
+	return true;
+#else
+	return false;
+#endif
 }
 
 FSocket* FSocketEOS::Accept(const FString& InSocketDescription)
 {
-	FInternetAddrEOS DummyAddr;
-	return Accept(DummyAddr, InSocketDescription);
+	/** Not supported - connectionless (UDP) only */
+	SocketSubsystem.SetLastSocketError(ESocketErrors::SE_EOPNOTSUPP);
+	return nullptr;
 }
 
 FSocket* FSocketEOS::Accept(FInternetAddr& OutAddr, const FString& InSocketDescription)
 {
-	// Create a new socket for the accepted connection
-	FSocketEOS* NewSocket = new FSocketEOS(InSocketDescription, P2PHandle, LocalUserId);
-	NewSocket->ConnectionState = SCS_Connected;
-	return NewSocket;
+	/** Not supported - connectionless (UDP) only */
+	SocketSubsystem.SetLastSocketError(ESocketErrors::SE_EOPNOTSUPP);
+	return nullptr;
 }
 
-bool FSocketEOS::SendTo(const uint8* Data, int32 Count, int32& BytesSent, const FInternetAddr& Destination)
+bool FSocketEOS::SendTo(const uint8* Data, int32 Count, int32& OutBytesSent, const FInternetAddr& Destination)
 {
-	if (!P2PHandle || !LocalUserId)
+	check(IsInGameThread() && "p2p does not support multithreading");
+
+	OutBytesSent = 0;
+
+	UE_LOG(LogSocketSubsystemEOS, Verbose, TEXT("FSocketEOS::SendTo called: Count=%d, Destination=%s"), 
+		Count, *Destination.ToString(false));
+
+	if (!Destination.IsValid())
 	{
-		BytesSent = 0;
+		UE_LOG(LogSocketSubsystemEOS, Warning, TEXT("Unable to send data, invalid destination address. DestinationAddress = (%s)"), *Destination.ToString(true));
+
+		SocketSubsystem.SetLastSocketError(ESocketErrors::SE_EADDRNOTAVAIL);
 		return false;
 	}
 
-	const FInternetAddrEOS& EOSAddr = static_cast<const FInternetAddrEOS&>(Destination);
-	EOS_ProductUserId TargetUserId = EOSAddr.GetProductUserId();
-
-	if (!TargetUserId)
+#if WITH_EOS_SDK
+	if (Count > EOS_P2P_MAX_PACKET_SIZE)
 	{
-		BytesSent = 0;
+		UE_LOG(LogSocketSubsystemEOS, Warning, TEXT("Unable to send data, data over maximum size. Amount=[%d/%d] DestinationAddress = (%s)"), Count, EOS_P2P_MAX_PACKET_SIZE, *Destination.ToString(true));
+
+		SocketSubsystem.SetLastSocketError(ESocketErrors::SE_EMSGSIZE);
 		return false;
 	}
 
-	EOS_P2P_SendPacketOptions SendOptions = {};
-	SendOptions.ApiVersion = EOS_P2P_SENDPACKET_API_LATEST;
-	SendOptions.LocalUserId = LocalUserId;
-	SendOptions.RemoteUserId = TargetUserId;
-	SendOptions.Channel = P2P_CHANNEL;
-	SendOptions.DataLengthBytes = Count;
-	SendOptions.Data = Data;
-	SendOptions.Reliability = ReliabilityMode;
-	SendOptions.bAllowDelayedDelivery = EOS_TRUE;
-
-	EOS_EResult Result = EOS_P2P_SendPacket(P2PHandle, &SendOptions);
-
-	if (Result == EOS_EResult::EOS_Success)
+	if (Count < 0)
 	{
-		BytesSent = Count;
-		return true;
+		UE_LOG(LogSocketSubsystemEOS, Warning, TEXT("Unable to send data, data invalid. Amount=[%d/%d] DestinationAddress = (%s)"), Count, EOS_P2P_MAX_PACKET_SIZE, *Destination.ToString(true));
+
+		SocketSubsystem.SetLastSocketError(ESocketErrors::SE_EINVAL);
+		return false;
+	}
+#endif 
+
+	if (Data == nullptr && Count != 0)
+	{
+		UE_LOG(LogSocketSubsystemEOS, Warning, TEXT("Unable to send data, data invalid. DestinationAddress = (%s)"), *Destination.ToString(true));
+
+		SocketSubsystem.SetLastSocketError(ESocketErrors::SE_EINVAL);
+		return false;
 	}
 
-	BytesSent = 0;
+	if (!LocalAddress.IsValid())
+	{
+		UE_LOG(LogSocketSubsystemEOS, Warning, TEXT("Unable to send data, socket was not initialized. DestinationAddress = (%s)"), *Destination.ToString(true));
+
+		SocketSubsystem.SetLastSocketError(ESocketErrors::SE_NOTINITIALISED);
+		return false;
+	}
+
+	const FInternetAddrEOS& DestinationAddress = static_cast<const FInternetAddrEOS&>(Destination);
+	if (LocalAddress == DestinationAddress)
+	{
+		UE_LOG(LogSocketSubsystemEOS, Warning, TEXT("Unable to send data, unable to send data to ourselves. DestinationAddress = (%s)"), *Destination.ToString(true));
+
+		SocketSubsystem.SetLastSocketError(ESocketErrors::SE_ECONNREFUSED);
+		return false;
+	}
+
+	// Check for sending to an address we explicitly closed
+	if (WasClosed(DestinationAddress))
+	{
+		UE_LOG(LogSocketSubsystemEOS, Warning, TEXT("Unable to send data to closed connection. DestinationAddress = (%s)"), *Destination.ToString(true));
+
+		SocketSubsystem.SetLastSocketError(ESocketErrors::SE_ECONNREFUSED);
+		return false;
+	}
+
+#if WITH_EOS_SDK
+	// Need to handle closures if we are a client and the server closes down on us
+	RegisterClosedNotification();
+
+	EOS_P2P_SocketId SocketId = { };
+	SocketId.ApiVersion = EOS_P2P_SOCKETID_API_LATEST;
+	FCStringAnsi::Strcpy(SocketId.SocketName, DestinationAddress.GetSocketName());
+
+	EOS_P2P_SendPacketOptions Options = { };
+	Options.ApiVersion = EOS_P2P_SENDPACKET_API_LATEST;
+	Options.LocalUserId = LocalAddress.GetLocalUserId();
+	Options.RemoteUserId = DestinationAddress.GetRemoteUserId();
+	Options.SocketId = &SocketId;
+	Options.bAllowDelayedDelivery = EOS_TRUE;
+	Options.Reliability = EOS_EPacketReliability::EOS_PR_UnreliableUnordered;
+	Options.Channel = DestinationAddress.GetChannel();
+	Options.DataLengthBytes = Count;
+	Options.Data = Data;
+	EOS_EResult Result = EOS_P2P_SendPacket(SocketSubsystem.GetP2PHandle(), &Options);
+	NP_LOG(TEXT("[%s] - EOS_P2P_SendPacket() to (%s) result code = (%s)\r\n"), GetLogPrefix(), *Destination.ToString(true), ANSI_TO_TCHAR(EOS_EResult_ToString(Result)));
+	
+	if (Result != EOS_EResult::EOS_Success)
+	{
+		UE_LOG(LogSocketSubsystemEOS, Error, TEXT("❌ EOS_P2P_SendPacket failed to (%s) result code = (%s)"), 
+			*Destination.ToString(true), ANSI_TO_TCHAR(EOS_EResult_ToString(Result)));
+		UE_LOG(LogSocketSubsystemEOS, Error, TEXT("   LocalUserId: %s, RemoteUserId: %s, SocketName: %s, Channel: %d"), 
+			LocalAddress.GetLocalUserId() ? TEXT("Valid") : TEXT("NULL"),
+			DestinationAddress.GetRemoteUserId() ? TEXT("Valid") : TEXT("NULL"),
+			UTF8_TO_TCHAR(DestinationAddress.GetSocketName()),
+			DestinationAddress.GetChannel());
+
+		// @todo joeg - map EOS codes to UE4's
+		SocketSubsystem.SetLastSocketError(ESocketErrors::SE_EINVAL);
+		return false;
+	}
+	
+	UE_LOG(LogSocketSubsystemEOS, Verbose, TEXT("✅ EOS_P2P_SendPacket succeeded: Sent %d bytes to %s"), 
+		Count, *Destination.ToString(false));
+	OutBytesSent = Count;
+	return true;
+#else
 	return false;
+#endif
 }
 
 bool FSocketEOS::Send(const uint8* Data, int32 Count, int32& BytesSent)
 {
-	if (!RemoteUserId)
-	{
-		BytesSent = 0;
-		return false;
-	}
-
-	FInternetAddrEOS RemoteAddr;
-	RemoteAddr.SetProductUserId(TEXT(""));  // RemoteUserId is already set
-	return SendTo(Data, Count, BytesSent, RemoteAddr);
+	/** Not supported - connectionless (UDP) only */
+	SocketSubsystem.SetLastSocketError(ESocketErrors::SE_EOPNOTSUPP);
+	BytesSent = 0;
+	return false;
 }
 
 bool FSocketEOS::RecvFrom(uint8* Data, int32 BufferSize, int32& BytesRead, FInternetAddr& Source, ESocketReceiveFlags::Type Flags)
 {
-	if (!P2PHandle || !LocalUserId)
+	check(IsInGameThread() && "p2p does not support multithreading");
+	BytesRead = 0;
+
+	if (BufferSize < 0)
 	{
-		BytesRead = 0;
+		UE_LOG(LogSocketSubsystemEOS, Error, TEXT("Unable to receive data, receiving buffer was invalid. BufferSize = (%d)"), BufferSize);
+
+		SocketSubsystem.SetLastSocketError(ESocketErrors::SE_EINVAL);
 		return false;
 	}
 
-	EOS_P2P_ReceivePacketOptions ReceiveOptions = {};
-	ReceiveOptions.ApiVersion = EOS_P2P_RECEIVEPACKET_API_LATEST;
-	ReceiveOptions.LocalUserId = LocalUserId;
-	ReceiveOptions.MaxDataSizeBytes = BufferSize;
-	ReceiveOptions.RequestedChannel = nullptr; // All channels
-
-	// EOS_P2P_ReceivePacket signature: EOS_EResult EOS_P2P_ReceivePacket(EOS_HP2P Handle, const EOS_P2P_ReceivePacketOptions* Options, EOS_ProductUserId* OutPeerId, EOS_P2P_SocketId* OutSocketId, uint8_t* OutChannel, void* OutData, uint32_t* OutBytesWritten)
-	EOS_ProductUserId OutPeerId;
-	EOS_P2P_SocketId OutSocketId;
-	uint8_t OutChannel;
-	uint32_t OutBytesWritten;
-
-	EOS_EResult Result = EOS_P2P_ReceivePacket(P2PHandle, &ReceiveOptions, &OutPeerId, &OutSocketId, &OutChannel, Data, &OutBytesWritten);
-
-	if (Result == EOS_EResult::EOS_Success)
+	if (Flags != ESocketReceiveFlags::None)
 	{
-		BytesRead = OutBytesWritten;
+		// We do not support peaking / blocking until a packet comes
+		UE_LOG(LogSocketSubsystemEOS, Error, TEXT("Socket receive flags (%d) are not supported"), int32(Flags));
 
-		// Set the source address
-		char RemoteUserIdStr[EOS_PRODUCTUSERID_MAX_LENGTH + 1];
-		int32_t RemoteUserIdStrSize = sizeof(RemoteUserIdStr);
-		if (EOS_ProductUserId_ToString(OutPeerId, RemoteUserIdStr, &RemoteUserIdStrSize) == EOS_EResult::EOS_Success)
-		{
-			FInternetAddrEOS& EOSSource = static_cast<FInternetAddrEOS&>(Source);
-			EOSSource.SetProductUserId(UTF8_TO_TCHAR(RemoteUserIdStr));
-		}
-
-		return true;
+		SocketSubsystem.SetLastSocketError(ESocketErrors::SE_EOPNOTSUPP);
+		return false;
 	}
 
-	BytesRead = 0;
+#if WITH_EOS_SDK
+	EOS_P2P_ReceivePacketOptions Options = { };
+	Options.ApiVersion = EOS_P2P_RECEIVEPACKET_API_LATEST;
+	Options.LocalUserId = LocalAddress.GetLocalUserId();
+	Options.MaxDataSizeBytes = BufferSize;
+	uint8 Channel = LocalAddress.GetChannel();
+	Options.RequestedChannel = &Channel;
+
+	EOS_ProductUserId RemoteUserId = nullptr;
+	EOS_P2P_SocketId SocketId;
+	
+	EOS_EResult Result = EOS_P2P_ReceivePacket(SocketSubsystem.GetP2PHandle(), &Options, &RemoteUserId, &SocketId, &Channel, Data, (uint32*)&BytesRead);
+	NP_LOG(TEXT("[%s] - EOS_P2P_ReceivePacket() for user (%s) and channel (%d) with result code = (%s)\r\n"), GetLogPrefix(), *MakeStringFromProductUserId(LocalAddress.GetLocalUserId()), Channel, ANSI_TO_TCHAR(EOS_EResult_ToString(Result)));
+	if (Result == EOS_EResult::EOS_NotFound)
+	{
+		// No data to read
+		SocketSubsystem.SetLastSocketError(ESocketErrors::SE_EWOULDBLOCK);
+		return false;
+	}
+	else if (Result != EOS_EResult::EOS_Success)
+	{
+		UE_LOG(LogSocketSubsystemEOS, Error, TEXT("Unable to receive data result code = (%s)"), ANSI_TO_TCHAR(EOS_EResult_ToString(Result)));
+
+		// @todo joeg - map EOS codes to UE4's
+		SocketSubsystem.SetLastSocketError(ESocketErrors::SE_EINVAL);
+		return false;
+	}
+
+	FInternetAddrEOS& SourceAddress = static_cast<FInternetAddrEOS&>(Source);
+	SourceAddress.SetLocalUserId(LocalAddress.GetLocalUserId());
+	SourceAddress.SetRemoteUserId(RemoteUserId);
+	SourceAddress.SetSocketName(SocketId.SocketName);
+	SourceAddress.SetChannel(Channel);
+
+	NP_LOG(TEXT("[%s] - EOS_P2P_ReceivePacket() of size (%d) from (%s)\r\n"), GetLogPrefix(), BytesRead, *SourceAddress.ToString(true));
+	return true;
+#else
 	return false;
+#endif
 }
 
 bool FSocketEOS::Recv(uint8* Data, int32 BufferSize, int32& BytesRead, ESocketReceiveFlags::Type Flags)
 {
-	FInternetAddrEOS DummyAddr;
-	return RecvFrom(Data, BufferSize, BytesRead, DummyAddr, Flags);
+	BytesRead = 0;
+	SocketSubsystem.SetLastSocketError(ESocketErrors::SE_EOPNOTSUPP);
+	return false;
 }
 
 bool FSocketEOS::Wait(ESocketWaitConditions::Type Condition, FTimespan WaitTime)
 {
-	if (Condition == ESocketWaitConditions::WaitForRead)
-	{
-		uint32 PendingDataSize;
-		return HasPendingData(PendingDataSize);
-	}
-
-	// Always ready to write for EOS P2P
-	return true;
+	SocketSubsystem.SetLastSocketError(ESocketErrors::SE_EOPNOTSUPP);
+	return false;
 }
 
 ESocketConnectionState FSocketEOS::GetConnectionState()
 {
-	return ConnectionState;
+	return ESocketConnectionState::SCS_NotConnected;
 }
 
 void FSocketEOS::GetAddress(FInternetAddr& OutAddr)
 {
-	FInternetAddrEOS& EOSAddr = static_cast<FInternetAddrEOS&>(OutAddr);
-	if (LocalUserId)
-	{
-		char LocalUserIdStr[EOS_PRODUCTUSERID_MAX_LENGTH + 1];
-		int32_t LocalUserIdStrSize = sizeof(LocalUserIdStr);
-		if (EOS_ProductUserId_ToString(LocalUserId, LocalUserIdStr, &LocalUserIdStrSize) == EOS_EResult::EOS_Success)
-		{
-			EOSAddr.SetProductUserId(UTF8_TO_TCHAR(LocalUserIdStr));
-		}
-	}
+	OutAddr = LocalAddress;
 }
 
 bool FSocketEOS::GetPeerAddress(FInternetAddr& OutAddr)
 {
-	FInternetAddrEOS& EOSAddr = static_cast<FInternetAddrEOS&>(OutAddr);
-	if (RemoteUserId)
-	{
-		char RemoteUserIdStr[EOS_PRODUCTUSERID_MAX_LENGTH + 1];
-		int32_t RemoteUserIdStrSize = sizeof(RemoteUserIdStr);
-		if (EOS_ProductUserId_ToString(RemoteUserId, RemoteUserIdStr, &RemoteUserIdStrSize) == EOS_EResult::EOS_Success)
-		{
-			EOSAddr.SetProductUserId(UTF8_TO_TCHAR(RemoteUserIdStr));
-		}
-		return true;
-	}
+	SocketSubsystem.SetLastSocketError(ESocketErrors::SE_EOPNOTSUPP);
 	return false;
 }
 
-bool FSocketEOS::SetNonBlocking(bool bInIsNonBlocking)
+bool FSocketEOS::SetNonBlocking(bool bIsNonBlocking)
 {
-	bIsNonBlocking = bInIsNonBlocking;
 	return true;
 }
 
 bool FSocketEOS::SetBroadcast(bool bAllowBroadcast)
 {
-	// Not supported for EOS P2P
-	return false;
+	return true;
 }
 
 bool FSocketEOS::SetNoDelay(bool bIsNoDelay)
 {
-	// Set reliability mode based on NoDelay
-	ReliabilityMode = bIsNoDelay 
-		? EOS_EPacketReliability::EOS_PR_UnreliableUnordered 
-		: EOS_EPacketReliability::EOS_PR_ReliableOrdered;
 	return true;
 }
 
 bool FSocketEOS::JoinMulticastGroup(const FInternetAddr& GroupAddress)
 {
-	// Not supported for EOS P2P
-	return false;
-}
-
-bool FSocketEOS::JoinMulticastGroup(const FInternetAddr& GroupAddress, const FInternetAddr& InterfaceAddress)
-{
-	// Not supported for EOS P2P
+	SocketSubsystem.SetLastSocketError(ESocketErrors::SE_EOPNOTSUPP);
 	return false;
 }
 
 bool FSocketEOS::LeaveMulticastGroup(const FInternetAddr& GroupAddress)
 {
-	// Not supported for EOS P2P
-	return false;
-}
-
-bool FSocketEOS::LeaveMulticastGroup(const FInternetAddr& GroupAddress, const FInternetAddr& InterfaceAddress)
-{
-	// Not supported for EOS P2P
+	SocketSubsystem.SetLastSocketError(ESocketErrors::SE_EOPNOTSUPP);
 	return false;
 }
 
 bool FSocketEOS::SetMulticastLoopback(bool bLoopback)
 {
-	// Not supported for EOS P2P
+	SocketSubsystem.SetLastSocketError(ESocketErrors::SE_EOPNOTSUPP);
 	return false;
 }
 
 bool FSocketEOS::SetMulticastTtl(uint8 TimeToLive)
 {
-	// Not supported for EOS P2P
+	SocketSubsystem.SetLastSocketError(ESocketErrors::SE_EOPNOTSUPP);
+	return false;
+}
+
+bool FSocketEOS::JoinMulticastGroup(const FInternetAddr& GroupAddress, const FInternetAddr& InterfaceAddress)
+{
+	SocketSubsystem.SetLastSocketError(ESocketErrors::SE_EOPNOTSUPP);
+	return false;
+}
+
+bool FSocketEOS::LeaveMulticastGroup(const FInternetAddr& GroupAddress, const FInternetAddr& InterfaceAddress)
+{
+	SocketSubsystem.SetLastSocketError(ESocketErrors::SE_EOPNOTSUPP);
 	return false;
 }
 
 bool FSocketEOS::SetMulticastInterface(const FInternetAddr& InterfaceAddress)
 {
-	// Not supported for EOS P2P
+	SocketSubsystem.SetLastSocketError(ESocketErrors::SE_EOPNOTSUPP);
 	return false;
 }
 
 bool FSocketEOS::SetReuseAddr(bool bAllowReuse)
 {
-	// Not applicable for EOS P2P
 	return true;
 }
 
 bool FSocketEOS::SetLinger(bool bShouldLinger, int32 Timeout)
 {
-	// Not applicable for EOS P2P
 	return true;
 }
 
 bool FSocketEOS::SetRecvErr(bool bUseErrorQueue)
 {
-	// Not supported for EOS P2P
-	return false;
+	return true;
 }
 
 bool FSocketEOS::SetSendBufferSize(int32 Size, int32& NewSize)
 {
-	// EOS P2P manages its own buffers
-	NewSize = Size;
 	return true;
 }
 
 bool FSocketEOS::SetReceiveBufferSize(int32 Size, int32& NewSize)
 {
-	// EOS P2P manages its own buffers
-	NewSize = Size;
 	return true;
 }
 
 int32 FSocketEOS::GetPortNo()
 {
-	// Not applicable for EOS P2P
-	return 0;
+	return LocalAddress.GetChannel();
 }
 
-void FSocketEOS::SetRemoteAddr(const FInternetAddrEOS& InRemoteAddr)
+void FSocketEOS::SetLocalAddress(const FInternetAddrEOS& InLocalAddress)
 {
-	RemoteUserId = InRemoteAddr.GetProductUserId();
-	if (RemoteUserId)
+	LocalAddress = InLocalAddress;
+}
+
+bool FSocketEOS::Close(const FInternetAddrEOS& RemoteAddress)
+{
+	check(IsInGameThread() && "p2p does not support multithreading");
+
+	if (!RemoteAddress.IsValid())
 	{
-		ConnectionState = SCS_Connected;
+		UE_LOG(LogSocketSubsystemEOS, Error, TEXT("Unable to close socket with remote address as it is invalid RemoteAddress = (%s)"), *RemoteAddress.ToString(true));
+		SocketSubsystem.SetLastSocketError(ESocketErrors::SE_EADDRNOTAVAIL);
+		return false;
 	}
+
+#if WITH_EOS_SDK
+	// So we don't reopen a connection by sending to it
+	ClosedRemotes.Add(RemoteAddress);
+
+	EOS_P2P_SocketId SocketId = { };
+	SocketId.ApiVersion = EOS_P2P_SOCKETID_API_LATEST;
+	FCStringAnsi::Strcpy(SocketId.SocketName, RemoteAddress.GetSocketName());
+
+	EOS_P2P_CloseConnectionOptions Options = { };
+	Options.ApiVersion = EOS_P2P_CLOSECONNECTION_API_LATEST;
+	Options.LocalUserId = LocalAddress.GetLocalUserId();
+	Options.RemoteUserId = RemoteAddress.GetRemoteUserId();
+	Options.SocketId = &SocketId;
+
+	EOS_EResult Result = EOS_P2P_CloseConnection(SocketSubsystem.GetP2PHandle(), &Options);
+	NP_LOG(TEXT("[%s] - EOS_P2P_CloseConnection() with remote address RemoteAddress (%s) result code (%s)\r\n"), GetLogPrefix(), *RemoteAddress.ToString(true), ANSI_TO_TCHAR(EOS_EResult_ToString(Result)));
+	if (Result != EOS_EResult::EOS_Success)
+	{
+		UE_LOG(LogSocketSubsystemEOS, Error, TEXT("Unable to close socket with remote address RemoteAddress (%s) due to error (%s)"), *RemoteAddress.ToString(true), ANSI_TO_TCHAR(EOS_EResult_ToString(Result)));
+
+		// @todo joeg - map EOS codes to UE4's
+		SocketSubsystem.SetLastSocketError(ESocketErrors::SE_EINVAL);
+		return false;
+	}
+	return true;
+#else
+	return false;
+#endif
+}
+
+void FSocketEOS::RegisterClosedNotification()
+{
+#if WITH_EOS_SDK
+	if (ClosedNotifyId != EOS_INVALID_NOTIFICATIONID)
+	{
+		// Already listening for these events so ignore
+		return;
+	}
+	
+	EOS_P2P_SocketId SocketId = { };
+	SocketId.ApiVersion = EOS_P2P_SOCKETID_API_LATEST;
+	FCStringAnsi::Strcpy(SocketId.SocketName, LocalAddress.GetSocketName());
+
+	EOS_P2P_AddNotifyPeerConnectionClosedOptions Options = { };
+	Options.ApiVersion = EOS_P2P_ADDNOTIFYPEERCONNECTIONCLOSED_API_LATEST;
+	Options.LocalUserId = LocalAddress.GetLocalUserId();
+	Options.SocketId = &SocketId;
+
+#if ENGINE_MAJOR_VERSION == 5
+	ClosedNotifyCallback = new FClosedNotifyCallback(CallbackAliveTracker);
+#else
+	ClosedNotifyCallback = new FClosedNotifyCallback();
+#endif
+	ClosedNotifyCallback->CallbackLambda = [this](const EOS_P2P_OnRemoteConnectionClosedInfo* Info)
+	{
+		// Add this connection to the list of closed ones
+		FInternetAddrEOS RemoteAddress(Info->RemoteUserId, Info->SocketId->SocketName, LocalAddress.GetChannel());
+		RemoteAddress.SetLocalUserId(LocalAddress.GetLocalUserId());
+		ClosedRemotes.Add(RemoteAddress);
+		NP_LOG(TEXT("[%s] - Close connection received for remote address (%s)\r\n"), GetLogPrefix(), *RemoteAddress.ToString(true));
+	};
+	
+	// ClientData is passed as a separate parameter, not in Options
+	ClosedNotifyId = EOS_P2P_AddNotifyPeerConnectionClosed(SocketSubsystem.GetP2PHandle(), &Options, ClosedNotifyCallback, ClosedNotifyCallback->GetCallbackPtr());
+#endif
 }

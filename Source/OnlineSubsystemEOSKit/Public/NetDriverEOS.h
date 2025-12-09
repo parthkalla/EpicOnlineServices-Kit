@@ -4,39 +4,40 @@
 
 #include "CoreMinimal.h"
 #include "IpNetDriver.h"
+#include "OnlineBeacon.h"
 #include "NetDriverEOS.generated.h"
 
-/**
- * Net driver implementation for EOS P2P networking
- * Handles multiplayer replication using Epic Online Services P2P interface
- */
-	UCLASS(transient, config=Engine, DisplayName="NetDriverEOSKit")
-	class ONLINESUBSYSTEMEOSKIT_API UNetDriverEOS : public UIpNetDriver
-	{
-		GENERATED_BODY()
+class ISocketSubsystem;
+class UNetConnectionEOS;
 
-	public:
-		UNetDriverEOS(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
-	//~ Begin UNetDriver Interface
+UCLASS(Transient, Config=Engine)
+class ONLINESUBSYSTEMEOSKIT_API UNetDriverEOS
+	: public UIpNetDriver
+{
+	GENERATED_BODY()
+
+public:
+	UNetDriverEOS(const FObjectInitializer& ObjectInitializer);
+//~ Begin UNetDriver Interface
 	virtual bool IsAvailable() const override;
-	virtual ISocketSubsystem* GetSocketSubsystem() override;
 	virtual bool InitBase(bool bInitAsClient, FNetworkNotify* InNotify, const FURL& URL, bool bReuseAddressAndPort, FString& Error) override;
 	virtual bool InitConnect(FNetworkNotify* InNotify, const FURL& ConnectURL, FString& Error) override;
 	virtual bool InitListen(FNetworkNotify* InNotify, FURL& LocalURL, bool bReuseAddressAndPort, FString& Error) override;
-	virtual void TickDispatch(float DeltaTime) override;
-	virtual void ProcessRemoteFunction(class AActor* Actor, class UFunction* Function, void* Parameters, FOutParmRec* OutParms, FFrame* Stack, class UObject* SubObject = nullptr) override;
-	virtual void LowLevelSend(TSharedPtr<const FInternetAddr> Address, void* Data, int32 CountBits, FOutPacketTraits& Traits) override;
+	virtual ISocketSubsystem* GetSocketSubsystem() override;
 	virtual void Shutdown() override;
-	//~ End UNetDriver Interface
+	virtual int GetClientPort() override;
+	bool IsBeaconDriver() const;
+//~ End UNetDriver Interface
 
-protected:
-	/** Initialize the socket subsystem for EOS */
-	bool InitializeSocketSubsystem(FString& Error);
+	UWorld* FindWorld() const;
 
-private:
-	/** Cached socket subsystem for EOS */
-	class ISocketSubsystem* EOSSocketSubsystem;
+public:
+	UPROPERTY()
+	bool bIsPassthrough = false;
 
-	/** Is the driver initialized */
-	bool bIsInitialized;
+#if ENGINE_MAJOR_VERSION >= 5 && ENGINE_MINOR_VERSION >= 6
+	UE_DEPRECATED(5.6, "bIsUsingP2PSockets is deprecated. All code that used it now operates as if it were true")
+#endif
+	UPROPERTY(Config)
+	bool bIsUsingP2PSockets = true;
 };

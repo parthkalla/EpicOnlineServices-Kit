@@ -4,53 +4,31 @@
 
 #include "CoreMinimal.h"
 #include "IPAddress.h"
-#include "eos_common.h"
+#include "Runtime/Launch/Resources/Version.h"
 
-/**
- * Represents a network address using an EOS Product User ID (PUID)
- */
-class FInternetAddrEOS : public FInternetAddr
+#if WITH_EOS_SDK
+#if defined(EOS_PLATFORM_BASE_FILE_NAME)
+#include EOS_PLATFORM_BASE_FILE_NAME
+#endif
+#include "eos_common.h"
+#endif
+
+DECLARE_LOG_CATEGORY_EXTERN(LogSocketSubsystemEOS, Log, All);
+
+#define EOS_SOCKET_NAME_SIZE 33
+
+class ONLINESUBSYSTEMEOSKIT_API FInternetAddrEOS
+	: public FInternetAddr
 {
 public:
-	FInternetAddrEOS()
-		: ProductUserId(nullptr)
-		, Channel(0)
-	{
-		SocketName[0] = '\0';
-	}
+	FInternetAddrEOS();
+	FInternetAddrEOS(const FString& InRemoteUserId, const FString& InSocketName, const int32 InChannel);
+#if WITH_EOS_SDK
+	FInternetAddrEOS(const EOS_ProductUserId InRemoteUserId, const FString& InSocketName, const int32 InChannel);
+#endif
+	virtual ~FInternetAddrEOS() = default;
 
-	/**
-	 * Sets the Product User ID from a string
-	 * @param InPUID The Product User ID as a string
-	 */
-	void SetProductUserId(const FString& InPUID);
-
-	/**
-	 * Gets the Product User ID handle
-	 */
-	EOS_ProductUserId GetProductUserId() const { return ProductUserId; }
-
-	/**
-	 * Sets the socket name (for EOS P2P socket identification)
-	 */
-	void SetSocketName(const FString& InSocketName);
-
-	/**
-	 * Gets the socket name
-	 */
-	FString GetSocketName() const;
-
-	/**
-	 * Sets the channel (for EOS P2P communication)
-	 */
-	void SetChannel(uint8 InChannel);
-
-	/**
-	 * Gets the channel
-	 */
-	uint8 GetChannel() const;
-
-	//~ Begin FInternetAddr Interface
+//~ Begin FInternetAddr Interface
 	virtual void SetIp(uint32 InAddr) override;
 	virtual void SetIp(const TCHAR* InAddr, bool& bIsValid) override;
 	virtual void GetIp(uint32& OutAddr) const override;
@@ -62,17 +40,156 @@ public:
 	virtual void SetBroadcastAddress() override;
 	virtual void SetLoopbackAddress() override;
 	virtual FString ToString(bool bAppendPort) const override;
+	virtual uint32 GetTypeHash() const override;
 	virtual bool IsValid() const override;
 	virtual TSharedRef<FInternetAddr> Clone() const override;
-	virtual uint32 GetTypeHash() const override;
-	//~ End FInternetAddr Interface
+//~ End FInternetAddr Interface
+
+	FORCEINLINE FInternetAddrEOS& operator=(const FInternetAddrEOS& Other)
+	{
+		LocalUserId = Other.LocalUserId;
+		RemoteUserId = Other.RemoteUserId;
+		FCStringAnsi::Strncpy(SocketName, Other.SocketName, EOS_SOCKET_NAME_SIZE);
+		Channel = Other.Channel;
+		return *this;
+	}
+	
+	FORCEINLINE friend bool operator==(const FInternetAddrEOS& A, const FInternetAddrEOS& B)
+	{
+		return A.Channel == B.Channel
+#if WITH_EOS_SDK
+			&& A.LocalUserId == B.LocalUserId
+			&& A.RemoteUserId == B.RemoteUserId
+#endif
+			&& FCStringAnsi::Stricmp(A.GetSocketName(), B.GetSocketName()) == 0;
+	}
+
+	FORCEINLINE friend bool operator!=(const FInternetAddrEOS& A, const FInternetAddrEOS& B)
+	{
+		return !(A == B);
+	}
+
+	FORCEINLINE friend uint32 GetTypeHash(const FInternetAddrEOS& Address)
+	{
+		return Address.GetTypeHash();
+	}
+
+	friend bool operator<(const FInternetAddrEOS& Left, const FInternetAddrEOS& Right)
+	{
+#if WITH_EOS_SDK
+		if (Left.GetLocalUserId() < Right.GetLocalUserId())
+		{
+			return true;
+		}
+		else if (Left.GetRemoteUserId() < Right.GetRemoteUserId())
+		{
+			return true;
+		}
+		else
+#endif
+		if (FCStringAnsi::Stricmp(Left.GetSocketName(), Right.GetSocketName()) < 0)
+		{
+			return true;
+		}
+
+		return Left.GetChannel() < Right.GetChannel();
+	}
+
+#if WITH_EOS_SDK
+	EOS_ProductUserId GetLocalUserId() const
+	{
+		return LocalUserId;
+	}
+
+	void SetLocalUserId(EOS_ProductUserId InLocalUserId)
+	{
+		LocalUserId = InLocalUserId;
+	}
+
+	void SetRemoteUserId(EOS_ProductUserId InRemoteUserId)
+	{
+		RemoteUserId = InRemoteUserId;
+	}
+
+	EOS_ProductUserId GetRemoteUserId() const
+	{
+		return RemoteUserId;
+	}
+#else
+	void* GetLocalUserId() const
+	{
+		return LocalUserId;
+	}
+
+	void SetLocalUserId(void* InLocalUserId)
+	{
+		LocalUserId = InLocalUserId;
+	}
+
+	void SetRemoteUserId(void* InRemoteUserId)
+	{
+		RemoteUserId = InRemoteUserId;
+	}
+
+	void* GetRemoteUserId() const
+	{
+		return RemoteUserId;
+	}
+#endif
+	
+	const char* GetSocketName() const
+	{
+		return SocketName;
+	}
+
+	void SetSocketName(const FString& InSocketName)
+	{
+		FCStringAnsi::Strncpy(SocketName, TCHAR_TO_UTF8(*InSocketName), EOS_SOCKET_NAME_SIZE);
+	}
+
+	void SetSocketName(const char* InSocketName)
+	{
+		FCStringAnsi::Strncpy(SocketName, InSocketName, EOS_SOCKET_NAME_SIZE);
+	}
+
+	uint8 GetChannel() const
+	{
+		return Channel;
+	}
+
+	void SetChannel(uint8 InChannel)
+	{
+		Channel = InChannel;
+	}
+
+	// Legacy method for backward compatibility - returns RemoteUserId
+	EOS_ProductUserId GetProductUserId() const
+	{
+#if WITH_EOS_SDK
+		return RemoteUserId;
+#else
+		return nullptr;
+#endif
+	}
+
+	// Legacy method for backward compatibility - sets RemoteUserId
+	void SetProductUserId(const FString& InPUID)
+	{
+#if WITH_EOS_SDK
+		RemoteUserId = EOS_ProductUserId_FromString(TCHAR_TO_UTF8(*InPUID));
+#endif
+	}
 
 private:
-	EOS_ProductUserId ProductUserId;
-	
-	/** Socket name for EOS P2P (max 33 chars including null terminator) */
-	char SocketName[33];
-	
-	/** Channel for EOS P2P communication */
+#if WITH_EOS_SDK
+	EOS_ProductUserId LocalUserId;
+	EOS_ProductUserId RemoteUserId;
+#else
+	void* LocalUserId;
+	void* RemoteUserId;
+#endif
+	char SocketName[EOS_SOCKET_NAME_SIZE];
 	uint8 Channel;
+
+	friend class SocketSubsystemEOS;
 };

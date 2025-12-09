@@ -174,16 +174,44 @@ bool UEOSKitAutoConfigurator::UpdateOnlineSubsystemConfig()
 		if (!EngineIniText.Contains(TEXT("[OnlineSubsystem]")))
 		{
 			EngineIniText += TEXT("\n[OnlineSubsystem]\nDefaultPlatformService=EOSKit\n");
+			bConfigChanged = true;
 		}
 		else
 		{
-			// Replace existing DefaultPlatformService
-			EngineIniText.ReplaceInline(TEXT("DefaultPlatformService=EOS"), TEXT("DefaultPlatformService=EOSKit"));
-			EngineIniText.ReplaceInline(TEXT("DefaultPlatformService=NULL"), TEXT("DefaultPlatformService=EOSKit"));
+			// Replace any existing DefaultPlatformService value
+			FString Pattern1 = TEXT("DefaultPlatformService=EOS");
+			FString Pattern2 = TEXT("DefaultPlatformService=NULL");
+			FString Pattern3 = TEXT("DefaultPlatformService=");
 			
-			// Or add if missing
-			if (!EngineIniText.Contains(TEXT("DefaultPlatformService=")))
+			if (EngineIniText.Contains(Pattern1) && !EngineIniText.Contains(TEXT("DefaultPlatformService=EOSKit")))
 			{
+				EngineIniText.ReplaceInline(*Pattern1, TEXT("DefaultPlatformService=EOSKit"));
+				bConfigChanged = true;
+			}
+			else if (EngineIniText.Contains(Pattern2))
+			{
+				EngineIniText.ReplaceInline(*Pattern2, TEXT("DefaultPlatformService=EOSKit"));
+				bConfigChanged = true;
+			}
+			else if (EngineIniText.Contains(Pattern3))
+			{
+				// Replace any other value - find the line and replace it
+				int32 ServicePos = EngineIniText.Find(TEXT("DefaultPlatformService="));
+				if (ServicePos != INDEX_NONE)
+				{
+					int32 LineEnd = EngineIniText.Find(TEXT("\n"), ServicePos);
+					if (LineEnd == INDEX_NONE)
+					{
+						LineEnd = EngineIniText.Len();
+					}
+					FString OldLine = EngineIniText.Mid(ServicePos, LineEnd - ServicePos);
+					EngineIniText.ReplaceInline(*OldLine, TEXT("DefaultPlatformService=EOSKit"));
+					bConfigChanged = true;
+				}
+			}
+			else
+			{
+				// Add if missing
 				int32 SectionPos = EngineIniText.Find(TEXT("[OnlineSubsystem]"));
 				if (SectionPos != INDEX_NONE)
 				{
@@ -193,10 +221,10 @@ bool UEOSKitAutoConfigurator::UpdateOnlineSubsystemConfig()
 						NextSectionPos = EngineIniText.Len();
 					}
 					EngineIniText.InsertAt(NextSectionPos, TEXT("DefaultPlatformService=EOSKit\n"));
+					bConfigChanged = true;
 				}
 			}
 		}
-		bConfigChanged = true;
 	}
 
 	// Ensure [OnlineSubsystemEOSKit] is enabled

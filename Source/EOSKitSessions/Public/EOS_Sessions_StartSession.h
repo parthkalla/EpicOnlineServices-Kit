@@ -17,14 +17,15 @@ class EOSKITSESSIONS_API UEOS_Sessions_StartSession : public UBlueprintAsyncActi
 
 public:
 	// Mark a session as started
-	UFUNCTION(BlueprintCallable, Category = "EOSKit | SDK Functions | Sessions Interface", DisplayName = "EOS_Sessions_StartSession", meta = (BlueprintInternalUseOnly = "true"))
-	static UEOS_Sessions_StartSession* EOK_Sessions_StartSession(const FString& SessionName);
+	UFUNCTION(BlueprintCallable, Category = "EOSKit | SDK Functions | Sessions Interface", DisplayName = "EOS_Sessions_StartSession", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject"))
+	static UEOS_Sessions_StartSession* EOK_Sessions_StartSession(UObject* WorldContextObject, const FString& SessionName);
 
 	UPROPERTY(BlueprintAssignable, Category = "EOSKit | SDK Functions | Sessions Interface")
 	FEOSKit_OnStartSessionCallback OnCallback;
 
 private:
 	FString Var_SessionName;
+	TObjectPtr<UObject> CachedWorldContextObject;
 
 	virtual void Activate() override;
 	static void EOS_CALL OnStartSessionCallback(const EOS_Sessions_StartSessionCallbackInfo* Data);

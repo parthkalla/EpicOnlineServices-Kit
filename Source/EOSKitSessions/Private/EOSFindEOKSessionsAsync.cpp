@@ -4,6 +4,13 @@
 #include "OnlineSubsystem.h"
 #include "Interfaces/OnlineSessionInterface.h"
 #include "OnlineSessionSettings.h"
+#include "UObject/UObjectGlobals.h"
+#include "UObject/UnrealType.h"
+
+// SEARCH_LOBBIES constant (defined in OnlineSessionSettings.h in Unreal Engine)
+#ifndef SEARCH_LOBBIES
+static const FName SEARCH_LOBBIES(TEXT("SEARCH_LOBBIES"));
+#endif
 
 UEOSFindEOKSessionsAsync* UEOSFindEOKSessionsAsync::FindEOKSessions(
 	UObject* WorldContextObject,
@@ -38,42 +45,70 @@ void UEOSFindEOKSessionsAsync::FindSession()
 	UE_LOG(LogTemp, Warning, TEXT("EOSKit: Max Results: %d"), I_MaxResults);
 	UE_LOG(LogTemp, Warning, TEXT("EOSKit: ========================================"));
 	
-	// Use OnlineSubsystem interface (like EIK)
-	if (const IOnlineSubsystem* Subsystem = IOnlineSubsystem::Get())
+	// Use OnlineSubsystem interface (exactly like EIK)
+	if (const IOnlineSubsystem* SubsystemRef = IOnlineSubsystem::Get())
 	{
-		if (const IOnlineSessionPtr SessionPtr = Subsystem->GetSessionInterface())
+		if (const IOnlineSessionPtr SessionPtrRef = SubsystemRef->GetSessionInterface())
 		{
-			// Create search object
 			SessionSearch = MakeShareable(new FOnlineSessionSearch());
+			SessionSearch->QuerySettings.SearchParams.Empty(); // Clear params like EIK does
 			SessionSearch->bIsLanQuery = B_bLanSearch;
-			SessionSearch->MaxSearchResults = I_MaxResults;
 			
-			// Add search filters
-			for (const auto& Setting : SessionSettings)
+			// Match EIK's exact logic for MatchType
+			if (E_MatchType == EEOSKitMatchType::MatchmakingSession)
 			{
-				if (Setting.Key.IsEmpty()) continue;
+				// Matchmaking sessions - set RegionInfo if provided (like EIK)
+				if (E_RegionToSearch != EEOSKitRegion::NoSelection)
+				{
+					FString RegionString = UEnum::GetValueAsString(E_RegionToSearch);
+					SessionSearch->QuerySettings.Set(FName(TEXT("RegionInfo")), RegionString, EOnlineComparisonOp::Equals);
+				}
+				// Don't set SEARCH_LOBBIES for Matchmaking (searches regular sessions)
+			}
+			else
+			{
+				// Custom or Lobby sessions - search for Lobbies (like EIK)
+				SessionSearch->QuerySettings.Set(SEARCH_LOBBIES, true, EOnlineComparisonOp::Equals);
+				UE_LOG(LogTemp, Warning, TEXT("EOSKit: MatchType is %d - searching for LOBBIES"), static_cast<int32>(E_MatchType));
 				
-				FName SettingName = FName(*Setting.Key);
-				if (!Setting.Value.StringValue.IsEmpty())
+				// Handle bIncludePartySessions like EIK
+				if (!bIncludePartySessions)
 				{
-					SessionSearch->QuerySettings.Set(SettingName, Setting.Value.StringValue, EOnlineComparisonOp::Equals);
-				}
-				else if (Setting.Value.IntValue != 0)
-				{
-					SessionSearch->QuerySettings.Set(SettingName, Setting.Value.IntValue, EOnlineComparisonOp::Equals);
-				}
-				else
-				{
-					SessionSearch->QuerySettings.Set(SettingName, Setting.Value.BoolValue, EOnlineComparisonOp::Equals);
+					SessionSearch->QuerySettings.Set(FName(TEXT("IsPartySession")), false, EOnlineComparisonOp::Equals);
 				}
 			}
 			
-			// Register callback
-			SessionPtr->OnFindSessionsCompleteDelegates.AddUObject(this, &UEOSFindEOKSessionsAsync::OnFindSessionCompleted);
+			// Add search filters (exactly like EIK)
+			if (SessionSettings.Num() > 0)
+			{
+				for (auto& Settings_SingleValue : SessionSettings)
+				{
+					if (Settings_SingleValue.Key.IsEmpty())
+					{
+						continue;
+					}
+					
+					FName SettingName = FName(*Settings_SingleValue.Key);
+					
+					// Set value based on type (exactly like EIK)
+					if (!Settings_SingleValue.Value.StringValue.IsEmpty())
+					{
+						SessionSearch->QuerySettings.Set(SettingName, Settings_SingleValue.Value.StringValue, EOnlineComparisonOp::Equals);
+					}
+					else if (Settings_SingleValue.Value.IntValue != 0)
+					{
+						SessionSearch->QuerySettings.Set(SettingName, Settings_SingleValue.Value.IntValue, EOnlineComparisonOp::Equals);
+					}
+					else
+					{
+						SessionSearch->QuerySettings.Set(SettingName, Settings_SingleValue.Value.BoolValue, EOnlineComparisonOp::Equals);
+					}
+				}
+			}
 			
-			// Start search
-			UE_LOG(LogTemp, Log, TEXT("EOSKit: Calling OnlineSubsystem->FindSessions()..."));
-			SessionPtr->FindSessions(0, SessionSearch.ToSharedRef());
+			SessionSearch->MaxSearchResults = I_MaxResults;
+			SessionPtrRef->OnFindSessionsCompleteDelegates.AddUObject(this, &UEOSFindEOKSessionsAsync::OnFindSessionCompleted);
+			SessionPtrRef->FindSessions(0, SessionSearch.ToSharedRef());
 			return;
 		}
 		else

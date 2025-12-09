@@ -14,6 +14,7 @@
 #include "eos_sdk.h"
 #include "eos_init.h"
 #include "eos_logging.h"
+#include "eos_types.h"
 #endif
 
 DEFINE_LOG_CATEGORY_STATIC(LogEOSSDKManager, Log, All);
@@ -154,6 +155,54 @@ bool FEOSSDKManager::CreatePlatform()
 	// Basic sanity logs to help diagnose access violations from bad config values
 	UE_LOG(LogEOSSDKManager, Verbose, TEXT("EOSKit: Creating EOS Platform (ProductId=%s SandboxId=%s DeploymentId=%s TickBudget=%dms)"), *ActiveArtifact.ProductId, *ActiveArtifact.SandboxId, *ActiveArtifact.DeploymentId, TickBudgetMs);
 
+	// Read overlay settings from config
+	// Read directly from GConfig to ensure we get the actual config values
+	bool bEnableOverlay = false;
+	bool bEnableSocialOverlay = false;
+	bool bEnableEditorOverlay = false;
+	
+	if (GConfig)
+	{
+		const TCHAR* SettingsSection = TEXT("/Script/EOSKitShared.EOSKitSettings");
+		GConfig->GetBool(SettingsSection, TEXT("bEnableOverlay"), bEnableOverlay, GEngineIni);
+		GConfig->GetBool(SettingsSection, TEXT("bEnableSocialOverlay"), bEnableSocialOverlay, GEngineIni);
+		GConfig->GetBool(SettingsSection, TEXT("bEnableEditorOverlay"), bEnableEditorOverlay, GEngineIni);
+	}
+
+	// Set platform flags based on overlay settings
+	uint64_t PlatformFlags = 0;
+	
+	// Check if we're in editor
+#if WITH_EDITOR
+	const bool bIsInEditor = true;
+#else
+	const bool bIsInEditor = false;
+#endif
+
+	// EOS flag hierarchy:
+	// EOS_PF_LOADING_IN_EDITOR implies EOS_PF_DISABLE_OVERLAY
+	// EOS_PF_DISABLE_OVERLAY implies EOS_PF_DISABLE_SOCIAL_OVERLAY
+	
+	// If in editor and editor overlay is disabled, set loading in editor flag (disables everything)
+	if (bIsInEditor && !bEnableEditorOverlay)
+	{
+		PlatformFlags |= EOS_PF_LOADING_IN_EDITOR;
+	}
+	// Otherwise, check overlay settings
+	else
+	{
+		// If overlay is disabled, disable it (this also disables social overlay)
+		if (!bEnableOverlay)
+		{
+			PlatformFlags |= EOS_PF_DISABLE_OVERLAY;
+		}
+		// If overlay is enabled but social overlay is disabled, only disable social overlay
+		else if (!bEnableSocialOverlay)
+		{
+			PlatformFlags |= EOS_PF_DISABLE_SOCIAL_OVERLAY;
+		}
+	}
+
 	EOS_Platform_Options PlatformOptions = {};
 	PlatformOptions.ApiVersion = EOS_PLATFORM_OPTIONS_API_LATEST;
 	PlatformOptions.ProductId = ProductId.Get();
@@ -164,6 +213,14 @@ bool FEOSSDKManager::CreatePlatform()
 	PlatformOptions.CacheDirectory = CacheDirUtf8.Get();
 	PlatformOptions.EncryptionKey = EncryptionKey.Get();
 	PlatformOptions.TickBudgetInMilliseconds = TickBudgetMs;
+	PlatformOptions.Flags = PlatformFlags;
+
+	// Log overlay configuration
+	UE_LOG(LogEOSSDKManager, Log, TEXT("EOSKit: Overlay settings - Overlay: %s, Social Overlay: %s, Editor Overlay: %s, Flags: 0x%llX"), 
+		bEnableOverlay ? TEXT("Enabled") : TEXT("Disabled"),
+		bEnableSocialOverlay ? TEXT("Enabled") : TEXT("Disabled"),
+		bEnableEditorOverlay ? TEXT("Enabled") : TEXT("Disabled"),
+		static_cast<unsigned long long>(PlatformFlags));
 
 	// Optional: validate encryption key length (EOS requires 64 hex chars if provided)
 	if (ActiveArtifact.EncryptionKey.Len() > 0 && ActiveArtifact.EncryptionKey.Len() != 64)

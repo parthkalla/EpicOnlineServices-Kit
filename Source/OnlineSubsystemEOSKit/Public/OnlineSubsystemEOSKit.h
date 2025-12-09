@@ -188,6 +188,9 @@ public:
 	FOnlineSharedCloudEOSKitPtr SharedCloudInterfacePtr;
 	FOnlineVoiceEOSKitPtr VoiceInterfacePtr;
 
+	/** Socket subsystem for EOS P2P networking */
+	TSharedPtr<class FSocketSubsystemEOS> SocketSubsystem;
+
 	bool bWasLaunchedByEGS;
 	bool bIsDefaultOSS;
 	bool bIsPlatformOSS;

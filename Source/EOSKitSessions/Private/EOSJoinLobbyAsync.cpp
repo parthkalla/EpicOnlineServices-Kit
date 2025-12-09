@@ -25,14 +25,15 @@ void UEOSJoinLobbyAsync::Activate()
 
 void UEOSJoinLobbyAsync::JoinSession()
 {
-	if (const IOnlineSubsystem* SubsystemRef = IOnlineSubsystem::Get())
+	// Use Online::GetSubsystem like EIK does (with WorldContextObject)
+	if (const IOnlineSubsystem* SubsystemRef = Online::GetSubsystem(Var_WorldContextObject->GetWorld()))
 	{
 		if (const IOnlineSessionPtr SessionPtrRef = SubsystemRef->GetSessionInterface())
 		{
-			SessionPtrRef->AddOnJoinSessionCompleteDelegate_Handle(
-				FOnJoinSessionCompleteDelegate::CreateUObject(this, &UEOSJoinLobbyAsync::OnJoinSessionCompleted)
-			);
-
+			// Use OnJoinSessionCompleteDelegates like EIK (not AddOnJoinSessionCompleteDelegate_Handle)
+			SessionPtrRef->OnJoinSessionCompleteDelegates.AddUObject(this, &UEOSJoinLobbyAsync::OnJoinSessionCompleted);
+			
+			// Join using SessionResult.OnlineResult like EIK
 			SessionPtrRef->JoinSession(0, Var_SessionName, Var_SessionToJoin.OnlineResult);
 		}
 		else
@@ -66,7 +67,20 @@ void UEOSJoinLobbyAsync::OnJoinSessionCompleted(FName SessionName, EOnJoinSessio
 	{
 		return;
 	}
-
+	
+	// Check for party session like EIK does (access from OnlineResult.Session.SessionSettings)
+	bool bIsPartySession = false;
+	if (Var_SessionToJoin.OnlineResult.Session.SessionSettings.Get(FName(TEXT("IsPartySession")), bIsPartySession) && bIsPartySession)
+	{
+		UE_LOG(LogTemp, Log, TEXT("EOSKit: Successfully joined party session"));
+		Success.Broadcast(EEOSKitJoinResult::Success, FString());
+		Result.Broadcast(EEOSKitJoinResult::Success, FString());
+		bDelegateCalled = true;
+		SetReadyToDestroy();
+		MarkAsGarbage();
+		return;
+	}
+	
 	if (JoinResult == EOnJoinSessionCompleteResult::Success)
 	{
 		if (APlayerController* PlayerControllerRef = UGameplayStatics::GetPlayerController(Var_WorldContextObject, 0))
@@ -78,6 +92,22 @@ void UEOSJoinLobbyAsync::OnJoinSessionCompleted(FName SessionName, EOnJoinSessio
 				{
 					FString JoinAddress;
 					SessionPtrRef->GetResolvedConnectString(SessionName, JoinAddress);
+					
+					// Handle dedicated server port info like EIK
+					bool bIsDedicatedServer = false;
+					Var_SessionToJoin.OnlineResult.Session.SessionSettings.Get(FName(TEXT("IsDedicatedServer")), bIsDedicatedServer);
+					if (bIsDedicatedServer)
+					{
+						FString PortInfo = TEXT("7777");
+						Var_SessionToJoin.OnlineResult.Session.SessionSettings.Get(FName(TEXT("PortInfo")), PortInfo);
+						TArray<FString> IpPortArray;
+						JoinAddress.ParseIntoArray(IpPortArray, TEXT(":"), true);
+						if (IpPortArray.Num() > 0)
+						{
+							const FString IpAddress = IpPortArray[0];
+							JoinAddress = IpAddress + TEXT(":") + PortInfo;
+						}
+					}
 
 					if (!JoinAddress.IsEmpty())
 					{

@@ -1,11 +1,18 @@
 // Copyright (C) 2024, All Rights Reserved.
 
 #include "EOSCreateEOKSessionAsync.h"
-#include "EOSKitSubsystem.h"
-#include "Kismet/GameplayStatics.h"
+#include "CoreGlobals.h"
+#include "Misc/ConfigCacheIni.h"
+#include "Engine/NetDriver.h"
+#include "Engine/World.h"
+#include "Engine/Level.h"
+#include "UObject/Package.h"
+#include "OnlineSubsystemUtils.h"
 #include "OnlineSubsystem.h"
 #include "Interfaces/OnlineSessionInterface.h"
-#include "OnlineSessionSettings.h"
+#if ENGINE_MAJOR_VERSION == 5
+#include "Online/OnlineSessionNames.h"
+#endif
 
 void UEOSCreateEOKSessionAsync::Activate()
 {
@@ -15,146 +22,289 @@ void UEOSCreateEOKSessionAsync::Activate()
 
 void UEOSCreateEOKSessionAsync::CreateSession()
 {
-	UE_LOG(LogTemp, Warning, TEXT("EOSKit: ========================================"));
-	UE_LOG(LogTemp, Warning, TEXT("EOSKit: Creating EOS Session via OnlineSubsystem (like EIK)"));
-	UE_LOG(LogTemp, Warning, TEXT("EOSKit: Session Name: %s"), *VSessionName.ToString());
-	UE_LOG(LogTemp, Warning, TEXT("EOSKit: Public Connections: %d"), NumberOfPublicConnections);
-	UE_LOG(LogTemp, Warning, TEXT("EOSKit: ========================================"));
-	
-	if (!CachedWorldContextObject)
+	if(IOnlineSubsystem *SubsystemRef = Online::GetSubsystem(this->GetWorld(), "EOSKit"))
 	{
-		UE_LOG(LogTemp, Error, TEXT("EOSKit: CreateSession FAILED - WorldContextObject is null"));
-		OnFail.Broadcast(TEXT("WorldContextObject is null"));
-		SetReadyToDestroy();
-		return;
-	}
-	
-	// Use OnlineSubsystem interface (like EIK does)
-	if (IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld()))
-	{
-		if (IOnlineSessionPtr SessionPtr = Subsystem->GetSessionInterface())
+		if(IOnlineSessionPtr SessionPtrRef = SubsystemRef->GetSessionInterface())
 		{
-			// Build session settings
-			FOnlineSessionSettings Settings;
-			Settings.NumPublicConnections = NumberOfPublicConnections;
-			Settings.NumPrivateConnections = ExtraSettings.NumberOfPrivateConnections;
-			Settings.bShouldAdvertise = ExtraSettings.bShouldAdvertise;
-			Settings.bUsesPresence = ExtraSettings.bUsePresence;
-			Settings.bAllowJoinInProgress = ExtraSettings.bAllowJoinInProgress;
-			Settings.bAllowJoinViaPresence = ExtraSettings.bAllowJoinViaPresence;
-			Settings.bAllowJoinViaPresenceFriendsOnly = ExtraSettings.bAllowJoinViaPresenceFriendsOnly;
-			Settings.bIsLANMatch = false; // Always false for EOS
-			Settings.bUseLobbiesIfAvailable = false;
-			Settings.bAllowInvites = true;
-			Settings.bIsDedicated = DedicatedServerSettings.bUseDedicatedServer;
-			
-			// Add BucketId
-			if (!ExtraSettings.BucketId.IsEmpty())
+			FOnlineSessionSettings SessionCreationInfo;
+			SessionCreationInfo.bIsDedicated = DedicatedServerSettings.bUseDedicatedServer;
+			SessionCreationInfo.bUsesPresence = ExtraSettings.bUsePresence;
+			SessionCreationInfo.bAllowJoinViaPresence = ExtraSettings.bAllowJoinViaPresence;
+			SessionCreationInfo.bAllowJoinViaPresenceFriendsOnly = ExtraSettings.bAllowJoinViaPresenceFriendsOnly;
+			SessionCreationInfo.bAllowInvites = true;
+			if(DedicatedServerSettings.bUseDedicatedServer)
 			{
-				Settings.Set(FName(TEXT("BucketId")), ExtraSettings.BucketId, EOnlineDataAdvertisementType::ViaOnlineService);
+				SessionCreationInfo.bUsesPresence = false;
+				SessionCreationInfo.bAllowJoinViaPresence = false;
+				SessionCreationInfo.bAllowJoinViaPresenceFriendsOnly = false;
+				SessionCreationInfo.bAllowInvites = false;
 			}
-			
-			// Add custom attributes
-			for (const auto& Setting : SessionSettings)
+			SessionCreationInfo.bIsLANMatch = ExtraSettings.bIsLanMatch;
+			SessionCreationInfo.NumPublicConnections = NumberOfPublicConnections;
+			SessionCreationInfo.NumPrivateConnections = ExtraSettings.NumberOfPrivateConnections;
+			SessionCreationInfo.bUseLobbiesIfAvailable = false;
+			SessionCreationInfo.bUseLobbiesVoiceChatIfAvailable = false;
+			SessionCreationInfo.bShouldAdvertise = ExtraSettings.bShouldAdvertise;
+			SessionCreationInfo.bAllowJoinInProgress = ExtraSettings.bAllowJoinInProgress;
 			{
-				if (Setting.Key.IsEmpty()) continue;
+				FOnlineSessionSetting LocalVNameSetting;
+				LocalVNameSetting.AdvertisementType = EOnlineDataAdvertisementType::ViaOnlineService;
+				LocalVNameSetting.Data = *VSessionName.ToString();
+				SessionCreationInfo.Set(FName(TEXT("SessionName")), LocalVNameSetting);
+			}
+			{
+				FOnlineSessionSetting LocalbEnforceSanctions;
+				LocalbEnforceSanctions.AdvertisementType = EOnlineDataAdvertisementType::ViaOnlineService;
+				LocalbEnforceSanctions.Data = ExtraSettings.bEnforceSanctions;
+				SessionCreationInfo.Set(FName(TEXT("SANCTIONENABLED")), LocalbEnforceSanctions);
+			}
+			{
+				FOnlineSessionSetting bPartySession;
+				bPartySession.AdvertisementType = EOnlineDataAdvertisementType::ViaOnlineService;
+				bPartySession.Data = false;
+				SessionCreationInfo.Set(FName(TEXT("IsPartySession")), bPartySession);
+			}
+			SessionCreationInfo.Settings.Add( FName(TEXT("REGIONINFO")), FOnlineSessionSetting(UEnum::GetValueAsString(ExtraSettings.Region), EOnlineDataAdvertisementType::ViaOnlineService));
+			
+			// CRITICAL: Store the current map path so clients know which map to load
+			// Automatically fetch from engine - host is already on the session map
+			if (UWorld* World = GetWorld())
+			{
+				FString MapPath;
 				
-				FOnlineSessionSetting SessionSetting;
-				SessionSetting.AdvertisementType = EOnlineDataAdvertisementType::ViaOnlineService;
-				
-				if (!Setting.Value.StringValue.IsEmpty())
+				// Get the full map path (e.g., /Game/ThirdPerson/Maps/ThirdPersonMap)
+				// Try multiple methods to get the map path
+				if (ULevel* PersistentLevel = World->GetCurrentLevel())
 				{
-					SessionSetting.Data.SetValue(Setting.Value.StringValue);
+					if (UPackage* LevelPackage = PersistentLevel->GetOutermost())
+					{
+						MapPath = LevelPackage->GetName();
+						
+						// Remove the "UEDPIE_0_" prefix if present (PIE adds this)
+						MapPath.RemoveFromStart(TEXT("UEDPIE_0_"));
+						MapPath.RemoveFromStart(TEXT("UEDPIE_"));
+						
+						// Remove the "_PersistentLevel" suffix if present
+						MapPath.RemoveFromEnd(TEXT("_PersistentLevel"));
+					}
 				}
-				else if (Setting.Value.IntValue != 0)
+				
+				// Fallback: Use GetMapName() and try to construct path
+				if (MapPath.IsEmpty())
 				{
-					SessionSetting.Data.SetValue(Setting.Value.IntValue);
+					FString MapName = World->GetMapName();
+					if (!MapName.IsEmpty())
+					{
+						// Remove PIE prefixes
+						MapName.RemoveFromStart(TEXT("UEDPIE_0_"));
+						MapName.RemoveFromStart(TEXT("UEDPIE_"));
+						
+						// Try to get the package path
+						if (UPackage* WorldPackage = World->GetOutermost())
+						{
+							MapPath = WorldPackage->GetName();
+							MapPath.RemoveFromStart(TEXT("UEDPIE_0_"));
+							MapPath.RemoveFromStart(TEXT("UEDPIE_"));
+						}
+						else
+						{
+							// Last resort: use map name as-is
+							MapPath = MapName;
+						}
+					}
+				}
+				
+				if (!MapPath.IsEmpty())
+				{
+					// Store as "MapName" setting (matches EIK convention)
+					SessionCreationInfo.Settings.Add(FName(TEXT("MapName")), FOnlineSessionSetting(MapPath, EOnlineDataAdvertisementType::ViaOnlineService));
+					UE_LOG(LogTemp, Warning, TEXT("EOSKit: ✅ Automatically stored map path from engine: %s"), *MapPath);
 				}
 				else
 				{
-					SessionSetting.Data.SetValue(Setting.Value.BoolValue);
+					UE_LOG(LogTemp, Warning, TEXT("EOSKit: ⚠️ Could not determine map path from world"));
 				}
-				
-				Settings.Set(FName(*Setting.Key), SessionSetting);
 			}
 			
-			// Register callback
-			SessionPtr->OnCreateSessionCompleteDelegates.AddUObject(this, &UEOSCreateEOKSessionAsync::OnCreateSessionCompleted);
-			
-			// Create session via OnlineSubsystem (creates local + EOS backend)
-			UE_LOG(LogTemp, Log, TEXT("EOSKit: Calling OnlineSubsystem->CreateSession()..."));
-			SessionPtr->CreateSession(0, VSessionName, Settings);
-			return;
+			if(DedicatedServerSettings.bUseDedicatedServer)
+			{
+				FString Port = FString::FromInt(DedicatedServerSettings.ServerPort);				
+				SessionCreationInfo.Settings.Add( FName(TEXT("PortInfo")), FOnlineSessionSetting(Port, EOnlineDataAdvertisementType::ViaOnlineService));
+				SessionCreationInfo.Settings.Add( FName(TEXT("IsDedicatedServer")), FOnlineSessionSetting(true, EOnlineDataAdvertisementType::ViaOnlineService));
+			}
+			for (auto& Settings_SingleValue : SessionSettings)
+			{
+				if (Settings_SingleValue.Key.Len() == 0)
+				{
+					continue;
+				}
+
+				FOnlineSessionSetting Setting;
+				Setting.AdvertisementType = EOnlineDataAdvertisementType::ViaOnlineService;
+				
+				// Convert FEOSKitAttribute to FVariantData (like EIK does with FEIKAttribute.GetVariantData())
+				if (!Settings_SingleValue.Value.StringValue.IsEmpty())
+				{
+					Setting.Data.SetValue(Settings_SingleValue.Value.StringValue);
+				}
+				else if (Settings_SingleValue.Value.IntValue != 0)
+				{
+					Setting.Data.SetValue(Settings_SingleValue.Value.IntValue);
+				}
+				else if (Settings_SingleValue.Value.FloatValue != 0.0f)
+				{
+					Setting.Data.SetValue(Settings_SingleValue.Value.FloatValue);
+				}
+				else
+				{
+					Setting.Data.SetValue(Settings_SingleValue.Value.BoolValue);
+				}
+				
+				SessionCreationInfo.Set(FName(*Settings_SingleValue.Key), Setting);
+			}
+			SessionPtrRef->OnCreateSessionCompleteDelegates.AddUObject(this, &UEOSCreateEOKSessionAsync::OnCreateSessionCompleted);
+			SessionPtrRef->CreateSession(0,VSessionName,SessionCreationInfo);
 		}
 		else
 		{
-			UE_LOG(LogTemp, Error, TEXT("EOSKit: CreateSession FAILED - SessionInterface is null"));
-			OnFail.Broadcast(TEXT("SessionInterface is null"));
-			SetReadyToDestroy();
-			return;
+			if(bDelegateCalled == false)
+			{
+				OnFail.Broadcast("");
+				SetReadyToDestroy();
+#if ENGINE_MAJOR_VERSION == 5
+				MarkAsGarbage();
+#else
+				MarkPendingKill();
+#endif
+				bDelegateCalled = true;
+			}
 		}
 	}
 	else
 	{
-		UE_LOG(LogTemp, Error, TEXT("EOSKit: CreateSession FAILED - OnlineSubsystem is null"));
-		OnFail.Broadcast(TEXT("OnlineSubsystem is null"));
-		SetReadyToDestroy();
-		return;
+		if(bDelegateCalled == false)
+		{
+			OnFail.Broadcast("");
+			bDelegateCalled = true;
+			SetReadyToDestroy();
+#if ENGINE_MAJOR_VERSION == 5
+			MarkAsGarbage();
+#else
+			MarkPendingKill();
+#endif
+		}
 	}
 }
 
 void UEOSCreateEOKSessionAsync::OnCreateSessionCompleted(FName SessionName, bool bWasSuccessful)
 {
-	if (bWasSuccessful)
+	if(bWasSuccessful)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("EOSKit: ✅ Session created successfully!"));
-		
-		// Get session ID for broadcast
-		FString SessionId;
-		if (const IOnlineSubsystem* Subsystem = IOnlineSubsystem::Get())
+		if(bDelegateCalled == false)
 		{
-			if (const IOnlineSessionPtr SessionPtr = Subsystem->GetSessionInterface())
+			const IOnlineSessionPtr Sessions = IOnlineSubsystem::Get()->GetSessionInterface();
+			if(const FOnlineSession* CurrentSession = Sessions->GetNamedSession(VSessionName))
 			{
-				if (FNamedOnlineSession* Session = SessionPtr->GetNamedSession(SessionName))
+				// CRITICAL FIX: Start the session immediately after creation
+				// Without this, the session remains in Pending state and is not discoverable/joinable
+				Sessions->OnStartSessionCompleteDelegates.AddUObject(this, &UEOSCreateEOKSessionAsync::OnStartSessionCompleted);
+				bool bStartResult = Sessions->StartSession(VSessionName);
+				if (!bStartResult)
 				{
-					if (Session->SessionInfo.IsValid())
-					{
-						SessionId = Session->SessionInfo->GetSessionId().ToString();
-					}
-					UE_LOG(LogTemp, Warning, TEXT("EOSKit: Session Name: %s"), *SessionName.ToString());
-					UE_LOG(LogTemp, Warning, TEXT("EOSKit: Session ID: %s"), *SessionId);
-					UE_LOG(LogTemp, Warning, TEXT("EOSKit: Note: Session is created but NOT started. Call StartSession separately if needed."));
+					UE_LOG(LogTemp, Error, TEXT("EOSKit: Failed to start session '%s'"), *VSessionName.ToString());
+					OnFail.Broadcast(TEXT("StartSession failed"));
+					bDelegateCalled = true;
+					SetReadyToDestroy();
+#if ENGINE_MAJOR_VERSION == 5
+					MarkAsGarbage();
+#else
+					MarkPendingKill();
+#endif
 				}
+				// Success will be broadcast in OnStartSessionCompleted callback
+				// Don't broadcast here - wait for StartSession to complete
+			}
+			else
+			{
+				OnSuccess.Broadcast("");
+				bDelegateCalled = true;
+				SetReadyToDestroy();
+#if ENGINE_MAJOR_VERSION == 5
+				MarkAsGarbage();
+#else
+				MarkPendingKill();
+#endif
 			}
 		}
-		
-		// Broadcast success - session is created but NOT started
-		OnSuccess.Broadcast(SessionId);
 	}
 	else
 	{
-		UE_LOG(LogTemp, Error, TEXT("EOSKit: Failed to create session via OnlineSubsystem"));
-		OnFail.Broadcast(TEXT("CreateSession failed"));
-	}
-	
-	SetReadyToDestroy();
+		if(bDelegateCalled == false)
+		{
+			OnFail.Broadcast("");
+			bDelegateCalled = true;
+			SetReadyToDestroy();
 #if ENGINE_MAJOR_VERSION == 5
-	MarkAsGarbage();
+			MarkAsGarbage();
 #else
-	MarkPendingKill();
+			MarkPendingKill();
 #endif
+		}
+	}
+}
+
+void UEOSCreateEOKSessionAsync::OnStartSessionCompleted(FName SessionName, bool bWasSuccessful)
+{
+	if(bWasSuccessful && !bDelegateCalled)
+	{
+		const IOnlineSessionPtr Sessions = IOnlineSubsystem::Get()->GetSessionInterface();
+		if(const FOnlineSession* CurrentSession = Sessions->GetNamedSession(VSessionName))
+		{
+			UE_LOG(LogTemp, Warning, TEXT("EOSKit: ✅ Session created AND started successfully! SessionID: %s"), 
+				*CurrentSession->SessionInfo.Get()->GetSessionId().ToString());
+			OnSuccess.Broadcast(CurrentSession->SessionInfo.Get()->GetSessionId().ToString());
+			bDelegateCalled = true;
+			SetReadyToDestroy();
+#if ENGINE_MAJOR_VERSION == 5
+			MarkAsGarbage();
+#else
+			MarkPendingKill();
+#endif
+		}
+		else
+		{
+			UE_LOG(LogTemp, Error, TEXT("EOSKit: StartSession succeeded but session not found"));
+			OnFail.Broadcast(TEXT("Session not found after StartSession"));
+			bDelegateCalled = true;
+			SetReadyToDestroy();
+#if ENGINE_MAJOR_VERSION == 5
+			MarkAsGarbage();
+#else
+			MarkPendingKill();
+#endif
+		}
+	}
+	else if(!bDelegateCalled)
+	{
+		UE_LOG(LogTemp, Error, TEXT("EOSKit: StartSession failed for session '%s'"), *VSessionName.ToString());
+		OnFail.Broadcast(TEXT("StartSession failed"));
+		bDelegateCalled = true;
+		SetReadyToDestroy();
+#if ENGINE_MAJOR_VERSION == 5
+		MarkAsGarbage();
+#else
+		MarkPendingKill();
+#endif
+	}
 }
 
 UEOSCreateEOKSessionAsync* UEOSCreateEOKSessionAsync::CreateEOKSession(
-	UObject* WorldContextObject,
 	TMap<FString, FEOSKitAttribute> SessionSettings,
-	FName SessionName,
-	int32 NumberOfPublicConnections,
-	FEOSKitDedicatedServerSettings DedicatedServerSettings,
-	FEOSKitCreateSessionSettings ExtraSettings)
+		FName SessionName,
+		int32 NumberOfPublicConnections,
+	FEOSKitDedicatedServerSettings DedicatedServerSettings, FEOSKitCreateSessionSettings ExtraSettings)
 {
-	UEOSCreateEOKSessionAsync* Ueik_CreateSessionObject = NewObject<UEOSCreateEOKSessionAsync>();
-	Ueik_CreateSessionObject->CachedWorldContextObject = WorldContextObject;
+	UEOSCreateEOKSessionAsync* Ueik_CreateSessionObject= NewObject<UEOSCreateEOKSessionAsync>();
 	Ueik_CreateSessionObject->SessionSettings = SessionSettings;
 	Ueik_CreateSessionObject->NumberOfPublicConnections = NumberOfPublicConnections;
 	Ueik_CreateSessionObject->DedicatedServerSettings = DedicatedServerSettings;

@@ -214,7 +214,177 @@ bool FOnlineIdentityEOSKit::Login(int32 LocalUserNum, const FOnlineAccountCreden
 		return true;
 	}
 	
-	// Not a Connect login
+	// Check if this is an Epic Account login (AccountPortal, PersistentAuth, etc.)
+	// These require EOS_Auth_Login -> EOS_Connect_Login chain
+	EOS_ELoginCredentialType LoginCredType = EOS_ELoginCredentialType::EOS_LCT_Password; // Initialize to a valid enum value
+	bool bIsEpicAccountLogin = false;
+	
+	if (AccountCredentials.Type == TEXT("AccountPortal"))
+	{
+		LoginCredType = EOS_ELoginCredentialType::EOS_LCT_AccountPortal;
+		bIsEpicAccountLogin = true;
+	}
+	else if (AccountCredentials.Type == TEXT("PersistentAuth") || AccountCredentials.Type == TEXT("persistentauth"))
+	{
+		LoginCredType = EOS_ELoginCredentialType::EOS_LCT_PersistentAuth;
+		bIsEpicAccountLogin = true;
+	}
+	else if (AccountCredentials.Type == TEXT("Developer"))
+	{
+		LoginCredType = EOS_ELoginCredentialType::EOS_LCT_Developer;
+		bIsEpicAccountLogin = true;
+	}
+	else if (AccountCredentials.Type == TEXT("ExchangeCode"))
+	{
+		LoginCredType = EOS_ELoginCredentialType::EOS_LCT_ExchangeCode;
+		bIsEpicAccountLogin = true;
+	}
+	
+	if (bIsEpicAccountLogin)
+	{
+		// Epic Account login - chain Auth -> Connect
+		if (!AuthHandle || !ConnectHandle)
+		{
+			UE_LOG_ONLINE(Error, TEXT("FOnlineIdentityEOSKit::Login: Auth or Connect handle is null"));
+			TriggerOnLoginCompleteDelegates(LocalUserNum, false, *FUniqueNetIdString::EmptyId(), TEXT("EOS handles not initialized"));
+			return false;
+		}
+		
+		// Setup Auth credentials
+		EOS_Auth_Credentials AuthCredentials = {};
+		AuthCredentials.ApiVersion = EOS_AUTH_CREDENTIALS_API_LATEST;
+		AuthCredentials.Type = LoginCredType;
+		
+		// Convert Id and Token to UTF8
+		FTCHARToUTF8 IdConverter(*AccountCredentials.Id);
+		FTCHARToUTF8 TokenConverter(*AccountCredentials.Token);
+		AuthCredentials.Id = AccountCredentials.Id.IsEmpty() ? nullptr : IdConverter.Get();
+		AuthCredentials.Token = AccountCredentials.Token.IsEmpty() ? nullptr : TokenConverter.Get();
+		
+		// Setup Auth login options
+		EOS_Auth_LoginOptions AuthLoginOptions = {};
+		AuthLoginOptions.ApiVersion = EOS_AUTH_LOGIN_API_LATEST;
+		AuthLoginOptions.Credentials = &AuthCredentials;
+		
+		// Create callback context for Auth -> Connect chain
+		struct FEpicAuthLoginCallback
+		{
+			FOnlineIdentityEOSKit* Identity;
+			int32 LocalUserNum;
+			EOS_HAuth AuthHandle;
+			EOS_HConnect ConnectHandle;
+			
+			static void EOS_CALL HandleAuthCallback(const EOS_Auth_LoginCallbackInfo* Data)
+			{
+				if (!Data || !Data->ClientData) return;
+				
+				FEpicAuthLoginCallback* Context = (FEpicAuthLoginCallback*)Data->ClientData;
+				
+				if (Data->ResultCode == EOS_EResult::EOS_Success)
+				{
+					UE_LOG_ONLINE(Log, TEXT("FOnlineIdentityEOSKit: Epic Auth login succeeded, starting Connect login"));
+					
+					// Copy auth token for Connect login
+					EOS_Auth_Token* AuthToken = nullptr;
+					EOS_Auth_CopyUserAuthTokenOptions CopyTokenOptions = {};
+					CopyTokenOptions.ApiVersion = EOS_AUTH_COPYUSERAUTHTOKEN_API_LATEST;
+					
+					EOS_EResult CopyResult = EOS_Auth_CopyUserAuthToken(Context->AuthHandle, &CopyTokenOptions, Data->LocalUserId, &AuthToken);
+					
+					if (CopyResult == EOS_EResult::EOS_Success && AuthToken)
+					{
+						// Setup Connect credentials using Epic credential type
+						EOS_Connect_Credentials ConnectCredentials = {};
+						ConnectCredentials.ApiVersion = EOS_CONNECT_CREDENTIALS_API_LATEST;
+						ConnectCredentials.Type = EOS_EExternalCredentialType::EOS_ECT_EPIC;
+						ConnectCredentials.Token = AuthToken->AccessToken;
+						
+						// Setup Connect login options
+						EOS_Connect_LoginOptions ConnectLoginOptions = {};
+						ConnectLoginOptions.ApiVersion = EOS_CONNECT_LOGIN_API_LATEST;
+						ConnectLoginOptions.Credentials = &ConnectCredentials;
+						
+						// Create callback context for Connect login
+						struct FConnectLoginFromEpicCallback
+						{
+							FOnlineIdentityEOSKit* Identity;
+							int32 LocalUserNum;
+							EOS_EpicAccountId EpicAccountId;
+							
+							static void EOS_CALL HandleConnectCallback(const EOS_Connect_LoginCallbackInfo* Data)
+							{
+								if (!Data || !Data->ClientData) return;
+								
+								FConnectLoginFromEpicCallback* Ctx = (FConnectLoginFromEpicCallback*)Data->ClientData;
+								
+								if (Data->ResultCode == EOS_EResult::EOS_Success)
+								{
+									// Convert ProductUserId to string
+									char ProductUserIdStr[EOS_PRODUCTUSERID_MAX_LENGTH + 1];
+									int32 ProductUserIdStrSize = sizeof(ProductUserIdStr);
+									EOS_ProductUserId_ToString(Data->LocalUserId, ProductUserIdStr, &ProductUserIdStrSize);
+									
+									FString ProductId = UTF8_TO_TCHAR(ProductUserIdStr);
+									UE_LOG_ONLINE(Log, TEXT("FOnlineIdentityEOSKit: ✅ Epic Auth -> Connect login chain succeeded, ProductUserId=%s"), *ProductId);
+									
+									// NOTE: ProductUserId is now available via EOS_Connect_GetLoggedInUserByIndex
+									// GetUniquePlayerId will query it from the Connect interface
+									
+									// Trigger login complete with ProductUserId
+									Ctx->Identity->TriggerOnLoginCompleteDelegates(Ctx->LocalUserNum, true, *FUniqueNetIdString::Create(ProductId, FName(TEXT("EOS"))), TEXT(""));
+								}
+								else if (Data->ResultCode == EOS_EResult::EOS_InvalidUser)
+								{
+									// Need to create account mapping using continuance token
+									UE_LOG_ONLINE(Log, TEXT("FOnlineIdentityEOSKit: InvalidUser - account mapping needed, ContinuanceToken available: %d"), Data->ContinuanceToken != nullptr);
+									
+									// For now, fail - full implementation would use CreateConnectedLogin
+									FString ErrorMsg = FString::Printf(TEXT("Account mapping required - ContinuanceToken handling not implemented"));
+									UE_LOG_ONLINE(Error, TEXT("FOnlineIdentityEOSKit: %s"), *ErrorMsg);
+									Ctx->Identity->TriggerOnLoginCompleteDelegates(Ctx->LocalUserNum, false, *FUniqueNetIdString::EmptyId(), ErrorMsg);
+								}
+								else
+								{
+									FString ErrorMsg = FString::Printf(TEXT("Connect login failed: %s"), UTF8_TO_TCHAR(EOS_EResult_ToString(Data->ResultCode)));
+									UE_LOG_ONLINE(Error, TEXT("FOnlineIdentityEOSKit: %s"), *ErrorMsg);
+									Ctx->Identity->TriggerOnLoginCompleteDelegates(Ctx->LocalUserNum, false, *FUniqueNetIdString::EmptyId(), ErrorMsg);
+								}
+								
+								delete Ctx;
+							}
+						};
+						
+						FConnectLoginFromEpicCallback* ConnectContext = new FConnectLoginFromEpicCallback{ Context->Identity, Context->LocalUserNum, Data->LocalUserId };
+						EOS_Connect_Login(Context->ConnectHandle, &ConnectLoginOptions, ConnectContext, &FConnectLoginFromEpicCallback::HandleConnectCallback);
+						
+						// Release auth token
+						EOS_Auth_Token_Release(AuthToken);
+					}
+					else
+					{
+						FString ErrorMsg = FString::Printf(TEXT("Failed to copy auth token: %s"), UTF8_TO_TCHAR(EOS_EResult_ToString(CopyResult)));
+						UE_LOG_ONLINE(Error, TEXT("FOnlineIdentityEOSKit: %s"), *ErrorMsg);
+						Context->Identity->TriggerOnLoginCompleteDelegates(Context->LocalUserNum, false, *FUniqueNetIdString::EmptyId(), ErrorMsg);
+					}
+				}
+				else
+				{
+					FString ErrorMsg = FString::Printf(TEXT("Epic Auth login failed: %s"), UTF8_TO_TCHAR(EOS_EResult_ToString(Data->ResultCode)));
+					UE_LOG_ONLINE(Error, TEXT("FOnlineIdentityEOSKit: %s"), *ErrorMsg);
+					Context->Identity->TriggerOnLoginCompleteDelegates(Context->LocalUserNum, false, *FUniqueNetIdString::EmptyId(), ErrorMsg);
+				}
+				
+				delete Context;
+			}
+		};
+		
+		FEpicAuthLoginCallback* AuthContext = new FEpicAuthLoginCallback{ this, LocalUserNum, AuthHandle, ConnectHandle };
+		EOS_Auth_Login(AuthHandle, &AuthLoginOptions, AuthContext, &FEpicAuthLoginCallback::HandleAuthCallback);
+		
+		return true;
+	}
+	
+	// Not a supported login type
 	UE_LOG_ONLINE(Warning, TEXT("FOnlineIdentityEOSKit::Login: Unsupported login type: %s"), *AccountCredentials.Type);
 	TriggerOnLoginCompleteDelegates(LocalUserNum, false, *FUniqueNetIdString::EmptyId(), TEXT("Unsupported login type"));
 	return false;
@@ -433,7 +603,8 @@ TArray<TSharedPtr<FUserOnlineAccount>> FOnlineIdentityEOSKit::GetAllUserAccounts
 
 FUniqueNetIdPtr FOnlineIdentityEOSKit::GetUniquePlayerId(int32 LocalUserNum) const
 {
-	// Get ProductUserId from EOSKitSubsystem
+	// CRITICAL: Get ProductUserId from EOSKitSubsystem
+	// This must return a FUniqueNetIdString with type "EOS" for PreLogin validation
 	if (GEngine)
 	{
 		for (const FWorldContext& Context : GEngine->GetWorldContexts())
@@ -444,24 +615,45 @@ FUniqueNetIdPtr FOnlineIdentityEOSKit::GetUniquePlayerId(int32 LocalUserNum) con
 				if (EOSKitSubsystemPtr)
 				{
 					EOS_ProductUserId ProductUserId = EOSKitSubsystemPtr->GetProductUserId(LocalUserNum);
-					if (ProductUserId)
+					if (EOS_ProductUserId_IsValid(ProductUserId) == EOS_TRUE)
 					{
-						// Create FUniqueNetId from ProductUserId
-						// This is a simplified version - full implementation would create proper FUniqueNetIdEOS
+						// Convert ProductUserId to string
 						char ProductUserIdStr[EOS_PRODUCTUSERID_MAX_LENGTH + 1];
 						int32_t ProductUserIdStrSize = sizeof(ProductUserIdStr);
 						if (EOS_ProductUserId_ToString(ProductUserId, ProductUserIdStr, &ProductUserIdStrSize) == EOS_EResult::EOS_Success)
 						{
 							FString UserIdString = UTF8_TO_TCHAR(ProductUserIdStr);
-							// Use CreateUniquePlayerId which is available in the base class
-							// Cast away const to call non-const method
-							return const_cast<FOnlineIdentityEOSKit*>(this)->CreateUniquePlayerId(UserIdString);
+							
+							// CRITICAL: Create FUniqueNetIdString with type "EOS"
+							// This ensures PreLogin validation matches the type between client and server
+							FUniqueNetIdPtr UniqueNetId = const_cast<FOnlineIdentityEOSKit*>(this)->CreateUniquePlayerId(UserIdString);
+							
+							if (UniqueNetId.IsValid())
+							{
+								UE_LOG_ONLINE(Verbose, TEXT("FOnlineIdentityEOSKit::GetUniquePlayerId: ✅ Returning ProductUserId=%s (Type: %s)"), 
+									*UserIdString, *UniqueNetId->GetType().ToString());
+								return UniqueNetId;
+							}
+							else
+							{
+								UE_LOG_ONLINE(Error, TEXT("FOnlineIdentityEOSKit::GetUniquePlayerId: ❌ Failed to create UniqueNetId from ProductUserId: %s"), *UserIdString);
+							}
 						}
+						else
+						{
+							UE_LOG_ONLINE(Error, TEXT("FOnlineIdentityEOSKit::GetUniquePlayerId: ❌ Failed to convert ProductUserId to string"));
+						}
+					}
+					else
+					{
+						UE_LOG_ONLINE(Verbose, TEXT("FOnlineIdentityEOSKit::GetUniquePlayerId: ProductUserId is invalid for LocalUserNum=%d (user may not be logged in yet)"), LocalUserNum);
 					}
 				}
 			}
 		}
 	}
+	
+	UE_LOG_ONLINE(Verbose, TEXT("FOnlineIdentityEOSKit::GetUniquePlayerId: Returning nullptr for LocalUserNum=%d"), LocalUserNum);
 	return nullptr;
 }
 

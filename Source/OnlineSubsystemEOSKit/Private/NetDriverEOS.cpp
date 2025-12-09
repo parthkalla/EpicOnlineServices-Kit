@@ -1,388 +1,500 @@
 // Copyright (C) 2024, All Rights Reserved.
 
 #include "NetDriverEOS.h"
+#include "NetConnectionEOS.h"
+#include "OnlineBeaconHost.h"
+#include "OnlineBeaconClient.h"
+#include "EngineUtils.h"
+#include "SocketEOS.h"
 #include "SocketSubsystemEOS.h"
-#include "SocketSubsystem.h"
-#include "IPAddress.h"
-#include "Sockets.h"
-#include "Engine/World.h"
-#include "Engine/NetConnection.h"
-#include "Interfaces/IPv4/IPv4Address.h"
+#include "Misc/EngineVersionComparison.h"
+#include "Engine/Engine.h"
+#include "Misc/ConfigCacheIni.h"
+#include "InternetAddrEOS.h"
 #include "IpConnection.h"
 
+#define EOS_CONNECTION_URL_PREFIX TEXT("EOS")
+
+#if ENGINE_MAJOR_VERSION >= 5
+#include UE_INLINE_GENERATED_CPP_BY_NAME(NetDriverEOS)
+#endif
+
 UNetDriverEOS::UNetDriverEOS(const FObjectInitializer& ObjectInitializer)
-	: Super(ObjectInitializer)
-	, EOSSocketSubsystem(nullptr)
-	, bIsInitialized(false)
+	: UIpNetDriver(ObjectInitializer)
 {
-	UE_LOG(LogNet, Warning, TEXT("UNetDriverEOS: Constructor called - NetDriver class is being loaded!"));
+	bIsPassthrough = false;
+	
+	// Set our custom connection class for EOS P2P
+	NetConnectionClass = UNetConnectionEOS::StaticClass();
+	
+#if ENGINE_MAJOR_VERSION >= 5 && ENGINE_MINOR_VERSION >= 6
+	// Check for deprecated config in UE 5.6+
+	bool bUnused;
+	if (GConfig->GetBool(TEXT("/Script/OnlineSubsystemEOSKit.NetDriverEOS"), TEXT("bIsUsingP2PSockets"), bUnused, GEngineIni))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("EOSKit NetDriver: bIsUsingP2PSockets is deprecated, please remove any related config values"));
+	}
+#else
+	// For UE 5.5 and below, initialize bIsUsingP2PSockets from config
+	if (!GConfig->GetBool(TEXT("/Script/OnlineSubsystemEOSKit.NetDriverEOS"), TEXT("bIsUsingP2PSockets"), bIsUsingP2PSockets, GEngineIni))
+	{
+		bIsUsingP2PSockets = true; // Default to true
+	}
+#endif
 }
 
 bool UNetDriverEOS::IsAvailable() const
 {
-	// Lazily ensure the EOS socket subsystem is initialized
-	const FName EOSSubsystemName(TEXT("EOS"));
-	ISocketSubsystem* SocketSub = ISocketSubsystem::Get(EOSSubsystemName);
-
-	if (!SocketSub)
+	// Use passthrough sockets if we are a dedicated server
+	if (IsRunningDedicatedServer())
 	{
-		UE_LOG(LogNet, Warning, TEXT("UNetDriverEOS::IsAvailable: EOS socket subsystem not found, attempting lazy initialization"));
-
-		FString Error;
-		FSocketSubsystemEOS* EOSSub = FSocketSubsystemEOS::Create();
-		if (EOSSub && EOSSub->Init(Error))
-		{
-			SocketSub = ISocketSubsystem::Get(EOSSubsystemName);
-			UE_LOG(LogNet, Warning, TEXT("UNetDriverEOS::IsAvailable: Lazy initialization succeeded, SocketSub=%p"), SocketSub);
-		}
-		else
-		{
-			UE_LOG(LogNet, Error, TEXT("UNetDriverEOS::IsAvailable: Failed to initialize EOS socket subsystem: %s"), *Error);
-		}
-	}
-
-	const bool bAvailable = (SocketSub != nullptr);
-	UE_LOG(LogNet, Warning, TEXT("UNetDriverEOS::IsAvailable: SocketSub=%p, bAvailable=%d"), SocketSub, bAvailable);
-	return bAvailable;
-}
-
-ISocketSubsystem* UNetDriverEOS::GetSocketSubsystem()
-{
-	// Always return the EOS socket subsystem for EOS P2P connections
-	if (!EOSSocketSubsystem)
-	{
-		EOSSocketSubsystem = ISocketSubsystem::Get(FName("EOS"));
-	}
-	return EOSSocketSubsystem ? EOSSocketSubsystem : Super::GetSocketSubsystem();
-}
-
-bool UNetDriverEOS::InitializeSocketSubsystem(FString& Error)
-{
-	// Get or create the EOS socket subsystem
-	EOSSocketSubsystem = ISocketSubsystem::Get(FName("EOS"));
-	
-	if (!EOSSocketSubsystem)
-	{
-		Error = TEXT("Failed to get EOS Socket Subsystem");
-		UE_LOG(LogNet, Error, TEXT("UNetDriverEOS: %s"), *Error);
 		return false;
 	}
 
-	UE_LOG(LogNet, Log, TEXT("UNetDriverEOS: Socket subsystem initialized"));
-	return true;
+	if (ISocketSubsystem* SocketSubsystem = ISocketSubsystem::Get(EOS_SOCKETSUBSYSTEM))
+	{
+		return true;
+	}
+
+	return false;
 }
 
 bool UNetDriverEOS::InitBase(bool bInitAsClient, FNetworkNotify* InNotify, const FURL& URL, bool bReuseAddressAndPort, FString& Error)
 {
-	// Initialize the EOS socket subsystem first
-	if (!InitializeSocketSubsystem(Error))
+	if (bIsPassthrough)
 	{
-		return false;
+		UE_LOG(LogTemp, Verbose, TEXT("Running as pass-through"));
+		return Super::InitBase(bInitAsClient, InNotify, URL, bReuseAddressAndPort, Error);
 	}
-
-	// Call UNetDriver::InitBase directly (not UIpNetDriver::InitBase) to avoid creating IP sockets
 	if (!UNetDriver::InitBase(bInitAsClient, InNotify, URL, bReuseAddressAndPort, Error))
 	{
-		UE_LOG(LogNet, Error, TEXT("UNetDriverEOS: Failed to init driver base"));
+		UE_LOG(LogTemp, Warning, TEXT("Failed to init driver base"));
 		return false;
 	}
 
-	// Get the EOS socket subsystem
-	FSocketSubsystemEOS* SocketSubsystem = static_cast<FSocketSubsystemEOS*>(GetSocketSubsystem());
+	FSocketSubsystemEOS* const SocketSubsystem = static_cast<FSocketSubsystemEOS*>(GetSocketSubsystem());
 	if (!SocketSubsystem)
 	{
-		Error = TEXT("Could not get EOS socket subsystem");
-		UE_LOG(LogNet, Error, TEXT("UNetDriverEOS: %s"), *Error);
+		if(!GetSocketSubsystem())
+		{
+			UE_LOG(LogTemp, Warning, TEXT("Could not get socket subsystem that is the base of EOS"));
+		}
+		UE_LOG(LogTemp, Warning, TEXT("Could not get socket subsystem"));
 		return false;
 	}
 
-	// Get the world context
-	UWorld* MyWorld = GetWorld();
-	if (!MyWorld)
-	{
-		// Try to find world from engine
-		if (GEngine)
-		{
-			for (const FWorldContext& Context : GEngine->GetWorldContexts())
-			{
-				if (Context.World())
-				{
-					MyWorld = Context.World();
-					break;
-				}
-			}
-		}
-	}
+	// We don't care if our world is null, everything we uses handles it fine
+	const UWorld* const MyWorld = FindWorld();
 
 	// Get our local address (proves we're logged in)
-	TSharedRef<FInternetAddr> LocalAddress = SocketSubsystem->GetLocalBindAddr(*GLog);
+	TSharedRef<FInternetAddr> LocalAddress = SocketSubsystem->GetLocalBindAddr(MyWorld, *GLog);
 	if (!LocalAddress->IsValid())
 	{
-		Error = TEXT("Could not bind local address - not logged in?");
-		UE_LOG(LogNet, Error, TEXT("UNetDriverEOS: %s"), *Error);
+		// Not logged in?
+		Error = TEXT("Could not bind local address");
+		UE_LOG(LogTemp, Warning, TEXT("Could not bind local address"));
 		return false;
 	}
 
-	// Create EOS socket
-	FSocket* NewSocket = SocketSubsystem->CreateSocket(NAME_DGram, TEXT("Unreal"), NAME_None);
-	if (!NewSocket)
-	{
-		Error = TEXT("Could not create EOS socket");
-		UE_LOG(LogNet, Error, TEXT("UNetDriverEOS: %s"), *Error);
-		return false;
-	}
 
-	// Set the socket and local address (UNetDriver method)
-	TSharedPtr<FSocket> SharedSocket(NewSocket);
+	// Create socket directly - it's managed by TrackedSockets
+	FSocket* NewSocket = SocketSubsystem->CreateSocket(NAME_DGram, TEXT("UE4"), NAME_None);
+	// Create a shared ptr with a no-op deleter since the socket is managed by TrackedSockets
+	TSharedPtr<FSocket> SharedSocket(NewSocket, [](FSocket*) { /* Socket is managed by TrackedSockets */ });
+
 	SetSocketAndLocalAddress(SharedSocket);
 
 	if (GetSocket() == nullptr)
 	{
-		Error = TEXT("Could not set socket");
-		UE_LOG(LogNet, Error, TEXT("UNetDriverEOS: %s"), *Error);
+		UE_LOG(LogTemp, Warning, TEXT("Could not create socket"));
 		return false;
 	}
 
-	// Store our local address and set socket name/channel
+	// Store our local address and set our port
 	TSharedRef<FInternetAddrEOS> EOSLocalAddress = StaticCastSharedRef<FInternetAddrEOS>(LocalAddress);
 	
-	// Set socket name and channel based on NetDriverName (UE 5.5) or NetDriverDefinition (UE 5.6+)
-	FString NetDriverNameStr;
+	// Set LocalUserId (always needed)
+	EOSLocalAddress->SetLocalUserId(SocketSubsystem->GetLocalUserId());
+	
+	if(IsBeaconDriver())
+	{
+		//Till we have a better solution, we will use a hardcoded port for the beacon driver
+		EOSLocalAddress->SetSocketName(TEXT("BeaconSession"));
+		// We will also use a hardcoded channel for the beacon driver
+		EOSLocalAddress->SetChannel(71);
+	}
+	else
+	{
+		// For clients (bInitAsClient == true), don't set socket name/channel here
+		// They will be set in BindNextPort() to match the remote host
+		// For hosts (bInitAsClient == false), set them now
+		if (!bInitAsClient)
+		{
 #if ENGINE_MAJOR_VERSION >= 5 && ENGINE_MINOR_VERSION >= 6
-	NetDriverNameStr = GetNetDriverDefinition().ToString();
+			// UE 5.6+ uses NetDriverDefinition instead of NetDriverName
+			FString NetDriverDefinitionStr = GetNetDriverDefinition().ToString();
+			EOSLocalAddress->SetChannel(GetTypeHash(NetDriverDefinitionStr));
+			EOSLocalAddress->SetSocketName(NetDriverDefinitionStr);
 #else
-	NetDriverNameStr = NetDriverName.ToString();
+			// UE 5.5 and below use NetDriverName
+			EOSLocalAddress->SetChannel(GetTypeHash(NetDriverName.ToString()));
+			EOSLocalAddress->SetSocketName(NetDriverName.ToString());
 #endif
-	EOSLocalAddress->SetSocketName(NetDriverNameStr);
-	// Use hash of NetDriverName as channel (clamp to uint8 range)
-	uint32 NameHash = GetTypeHash(NetDriverNameStr);
-	EOSLocalAddress->SetChannel(static_cast<uint8>(NameHash % 256));
+		}
+		// For clients, socket name and channel will be set in BindNextPort()
+	}
 
-	// Set local address
+	static_cast<FSocketEOS*>(GetSocket())->SetLocalAddress(*EOSLocalAddress);
+
 	LocalAddr = LocalAddress;
 
-	bIsInitialized = true;
-	UE_LOG(LogNet, Log, TEXT("UNetDriverEOS: InitBase completed - IsClient: %d, SocketName=%s, Channel=%d"), 
-		bInitAsClient, *EOSLocalAddress->GetSocketName(), EOSLocalAddress->GetChannel());
 	return true;
 }
 
 bool UNetDriverEOS::InitConnect(FNetworkNotify* InNotify, const FURL& ConnectURL, FString& Error)
 {
-	// Check if this is an EOS URL
-	// EIK checks ConnectURL.Host.StartsWith("EOS") - the Host should contain the full EOS address
-	// Format: EOS:ProductUserId:GameNetDriver:26
-	// Also check Protocol in case Unreal parses it differently
-	bool bIsEOSURL = ConnectURL.Host.StartsWith(TEXT("EOS"), ESearchCase::IgnoreCase) || 
-	                 ConnectURL.Protocol.Equals(TEXT("EOS"), ESearchCase::IgnoreCase);
+	
+	bool bIsEOSURL = ConnectURL.Host.StartsWith(EOS_CONNECTION_URL_PREFIX, ESearchCase::IgnoreCase);
 	bool bIsAvailableResult = IsAvailable();
 	
-	UE_LOG(LogNet, Warning, TEXT("UNetDriverEOS::InitConnect: FullURL=%s, Host=%s, Protocol=%s, Port=%d, bIsEOSURL=%d, bIsAvailable=%d"), 
-		*ConnectURL.ToString(), *ConnectURL.Host, *ConnectURL.Protocol, ConnectURL.Port, bIsEOSURL, bIsAvailableResult);
 	
-	// If not an EOS URL or EOS not available, fall back to IpNetDriver (passthrough)
+#if ENGINE_MAJOR_VERSION >= 5 && ENGINE_MINOR_VERSION >= 6
+	// UE 5.6+ removed bIsUsingP2PSockets checks - engine now always uses EOS sockets when available
 	if (!bIsAvailableResult || !bIsEOSURL)
+#else
+	// UE 5.5 and below still check bIsUsingP2PSockets
+	if (!bIsUsingP2PSockets || !bIsAvailableResult || !bIsEOSURL)
+#endif
 	{
-		UE_LOG(LogNet, Log, TEXT("UNetDriverEOS: Not an EOS URL or EOS not available, falling back to IpNetDriver"));
+
+		bIsPassthrough = true;
 		return Super::InitConnect(InNotify, ConnectURL, Error);
 	}
 
-	// This is an EOS P2P connection - initialize base
+	bool bIsValid = false;
+	TSharedRef<FInternetAddrEOS> RemoteHost = MakeShared<FInternetAddrEOS>();
+	RemoteHost->SetIp(*ConnectURL.Host, bIsValid);
+	if (!bIsValid || ConnectURL.Port < 0)
+	{
+		Error = TEXT("Invalid remote address");
+		UE_LOG(LogTemp, Warning, TEXT("Invalid Remote Address. ConnectUrl = (%s)"), *ConnectURL.ToString());
+		return false;
+	}
+
+
 	if (!InitBase(true, InNotify, ConnectURL, false, Error))
 	{
 		return false;
 	}
 
-	// Parse the remote EOS address from the URL
-	// URL format: EOS:ProductUserId:GameNetDriver:26
-	// Extract just the ProductUserId from the full EOS address
-	FString ProductUserIdStr = ConnectURL.Host;
-	
-	// Remove "EOS:" prefix if present
-	if (ProductUserIdStr.StartsWith(TEXT("EOS:"), ESearchCase::IgnoreCase))
-	{
-		ProductUserIdStr = ProductUserIdStr.RightChop(4);
-	}
-	
-	// Parse ProductUserId from format: ProductUserId:GameNetDriver:26
-	TArray<FString> Parts;
-	ProductUserIdStr.ParseIntoArray(Parts, TEXT(":"), true);
-	if (Parts.Num() >= 1)
-	{
-		ProductUserIdStr = Parts[0]; // Extract just the ProductUserId
-	}
-	
-	UE_LOG(LogNet, Warning, TEXT("UNetDriverEOS::InitConnect: Extracted ProductUserId: %s (length: %d) from URL: %s"), 
-		*ProductUserIdStr, ProductUserIdStr.Len(), *ConnectURL.Host);
-	
-	bool bIsValid = false;
-	TSharedRef<FInternetAddrEOS> RemoteHost = MakeShared<FInternetAddrEOS>();
-	RemoteHost->SetProductUserId(ProductUserIdStr);
-	bIsValid = RemoteHost->IsValid();
-	
-	UE_LOG(LogNet, Warning, TEXT("UNetDriverEOS::InitConnect: SetProductUserId result - IsValid: %d, Address: %s"), 
-		bIsValid, *RemoteHost->ToString(false));
-	
-	if (!bIsValid || ConnectURL.Port < 0)
-	{
-		Error = FString::Printf(TEXT("Invalid remote address. ProductUserId: %s, IsValid: %d"), *ProductUserIdStr, bIsValid);
-		UE_LOG(LogNet, Error, TEXT("UNetDriverEOS: %s. ConnectUrl = (%s)"), *Error, *ConnectURL.ToString());
-		return false;
-	}
-
-	// Get the socket created in InitBase
-	FSocket* CurSocket = GetSocket();
-	if (!CurSocket)
-	{
-		Error = TEXT("Socket is null");
-		UE_LOG(LogNet, Error, TEXT("UNetDriverEOS: %s"), *Error);
-		return false;
-	}
-
-	// Get local bind address and set socket name/channel on RemoteHost
-	FSocketSubsystemEOS* SocketSubsystem = static_cast<FSocketSubsystemEOS*>(GetSocketSubsystem());
-	if (!SocketSubsystem)
-	{
-		Error = TEXT("Could not get EOS socket subsystem");
-		UE_LOG(LogNet, Error, TEXT("UNetDriverEOS: %s"), *Error);
-		return false;
-	}
-
-	// Get local bind address
-	TSharedRef<FInternetAddr> LocalAddress = SocketSubsystem->GetLocalBindAddr(*GLog);
-	TSharedRef<FInternetAddrEOS> EOSLocalAddress = StaticCastSharedRef<FInternetAddrEOS>(LocalAddress);
-	
-	// Set socket name and channel on RemoteHost to match local address
-	FString NetDriverNameStr;
-#if ENGINE_MAJOR_VERSION >= 5 && ENGINE_MINOR_VERSION >= 6
-	NetDriverNameStr = GetNetDriverDefinition().ToString();
-#else
-	NetDriverNameStr = NetDriverName.ToString();
-#endif
-	RemoteHost->SetSocketName(NetDriverNameStr);
-	uint32 NameHash = GetTypeHash(NetDriverNameStr);
-	RemoteHost->SetChannel(static_cast<uint8>(NameHash % 256));
-
-	// Bind the socket to the local address (EOS socket binding)
-	if (!CurSocket->Bind(*LocalAddress))
-	{
-		Error = TEXT("Could not bind socket");
-		UE_LOG(LogNet, Error, TEXT("UNetDriverEOS: %s"), *Error);
-		return false;
-	}
-
-	// Set the address to what was parsed (this will be used for the connection)
+	// Set the address to what was parsed (us + remote)
 	// Note: LocalAddr in UNetDriver stores the address we're connecting TO (remote)
+	// Ensure RemoteHost has our LocalUserId set (needed for address validation and EOS P2P)
+	FSocketSubsystemEOS* const SocketSubsystem = static_cast<FSocketSubsystemEOS*>(GetSocketSubsystem());
+	if (SocketSubsystem)
+	{
+		RemoteHost->SetLocalUserId(SocketSubsystem->GetLocalUserId());
+	}
+	
 	LocalAddr = RemoteHost;
+	
+	UE_LOG(LogNet, Verbose, TEXT("UNetDriverEOS::InitConnect: Parsed RemoteHost - LocalUserId: %s, RemoteUserId: %s, SocketName: %s, Channel: %d"), 
+		RemoteHost->GetLocalUserId() ? TEXT("Valid") : TEXT("Invalid"),
+		RemoteHost->GetRemoteUserId() ? TEXT("Valid") : TEXT("Invalid"),
+		UTF8_TO_TCHAR(RemoteHost->GetSocketName()),
+		RemoteHost->GetChannel());
 
-	// Initialize connectionless handler
-	InitConnectionlessHandler();
+	// Reference to our newly created socket
+	FSocket* CurSocket = GetSocket();
 
-	// Create an unreal connection to the server
-	// Use UIpConnection since we don't have a custom EOS connection class
-	UIpConnection* Connection = NewObject<UIpConnection>(NetConnectionClass);
-	check(Connection);
+	// Bind our local port (BindNextPort will create a local address with socket name/channel from RemoteHost)
+	check(SocketSubsystem);
+	if (!SocketSubsystem->BindNextPort(CurSocket, *RemoteHost, MaxPortCountToTry + 1, 1))
+	{
+		// Failure
+		Error = TEXT("Could not bind local port");
+		UE_LOG(LogTemp, Warning, TEXT("Could not bind local port in %d attempts"), MaxPortCountToTry);
+		return false;
+	}
 
-	// Set it as the server connection before anything else so everything knows this is a client
-	ServerConnection = Connection;
-	Connection->InitLocalConnection(this, CurSocket, ConnectURL, USOCK_Pending);
+	// Create an unreal connection to the server (use custom EOS connection class)
+	UNetConnectionEOS* EOSConnection = NewObject<UNetConnectionEOS>(NetConnectionClass);
+	check(EOSConnection);
 
-	// Create initial client channels
+	// Set it as the server connection before everything else so everything knows this is a client
+	// Cast to base class for assignment (ServerConnection is TObjectPtr<UNetConnection>)
+	ServerConnection = EOSConnection;
+	
+	// Ensure the connection's RemoteAddr is set to our parsed RemoteHost (EOS address)
+	// This is critical for EOS P2P - the connection needs the remote ProductUserId
+	EOSConnection->RemoteAddr = RemoteHost;
+	
+	EOSConnection->InitLocalConnection(this, CurSocket, ConnectURL, USOCK_Pending);
+
+	// Log the connection setup for debugging
+	UE_LOG(LogNet, Warning, TEXT("UNetDriverEOS::InitConnect: ✅ Connection created successfully"));
+	UE_LOG(LogNet, Warning, TEXT("UNetDriverEOS::InitConnect: RemoteAddr: %s"), 
+		*RemoteHost->ToString(false));
+	UE_LOG(LogNet, Warning, TEXT("UNetDriverEOS::InitConnect: Socket: %p, Connection: %p"), CurSocket, EOSConnection);
+
 	CreateInitialClientChannels();
 
-	// Log the actual ProductUserId from the address
-	char RemotePUIDStr[EOS_PRODUCTUSERID_MAX_LENGTH + 1];
-	int32_t RemotePUIDStrSize = sizeof(RemotePUIDStr);
-	EOS_ProductUserId RemotePUID = RemoteHost->GetProductUserId();
-	if (EOS_ProductUserId_IsValid(RemotePUID) && EOS_ProductUserId_ToString(RemotePUID, RemotePUIDStr, &RemotePUIDStrSize) == EOS_EResult::EOS_Success)
-	{
-		UE_LOG(LogNet, Log, TEXT("UNetDriverEOS: InitConnect completed - Connected to ProductUserId: %s"), UTF8_TO_TCHAR(RemotePUIDStr));
-	}
-	else
-	{
-		UE_LOG(LogNet, Warning, TEXT("UNetDriverEOS: InitConnect completed but ProductUserId is invalid. Address: %s"), *RemoteHost->ToString(false));
-	}
+	UE_LOG(LogNet, Warning, TEXT("UNetDriverEOS::InitConnect: ✅ InitConnect completed - connection should start sending handshake packets"));
+
 	return true;
 }
 
 bool UNetDriverEOS::InitListen(FNetworkNotify* InNotify, FURL& LocalURL, bool bReuseAddressAndPort, FString& Error)
 {
-	// Check if EOS is available
+	
 	bool bIsAvailableResult = IsAvailable();
-	if (!bIsAvailableResult)
+	bool bHasLanMatch = LocalURL.HasOption(TEXT("bIsLanMatch"));
+	bool bUseIPSockets = LocalURL.HasOption(TEXT("bUseIPSockets"));
+	
+	
+#if ENGINE_MAJOR_VERSION >= 5 && ENGINE_MINOR_VERSION >= 6
+	// UE 5.6+ removed bIsUsingP2PSockets checks - engine now always uses EOS sockets when available
+	if (!bIsAvailableResult || bHasLanMatch || bUseIPSockets)
+#else
+	// UE 5.5 and below still check bIsUsingP2PSockets
+	if (!bIsUsingP2PSockets || !bIsAvailableResult || bHasLanMatch || bUseIPSockets)
+#endif
 	{
-		UE_LOG(LogNet, Log, TEXT("UNetDriverEOS: EOS not available, falling back to IpNetDriver"));
+
+		bIsPassthrough = true;
 		return Super::InitListen(InNotify, LocalURL, bReuseAddressAndPort, Error);
 	}
 
-	// Initialize base (creates EOS socket)
+
 	if (!InitBase(false, InNotify, LocalURL, bReuseAddressAndPort, Error))
 	{
 		return false;
 	}
 
-	// Initialize connectionless handler
-	InitConnectionlessHandler();
-
-	// Set up the socket for listening (EOS socket's Listen method)
+	// Bind our specified port if provided
 	FSocket* CurSocket = GetSocket();
-	if (!CurSocket)
-	{
-		Error = TEXT("Socket is null");
-		UE_LOG(LogNet, Error, TEXT("UNetDriverEOS: %s"), *Error);
-		return false;
-	}
-
 	if (!CurSocket->Listen(0))
 	{
-		Error = TEXT("Could not listen on EOS socket");
-		UE_LOG(LogNet, Error, TEXT("UNetDriverEOS: %s"), *Error);
+		Error = TEXT("Could not listen");
+		UE_LOG(LogTemp, Warning, TEXT("Could not listen on socket"));
 		return false;
 	}
 
-	UE_LOG(LogNet, Log, TEXT("UNetDriverEOS: InitListen completed - EOS P2P listen server initialized"));
+	InitConnectionlessHandler();
+
+	UE_LOG(LogTemp, Verbose, TEXT("Initialized as an EOSP2P listen server"));
+
+	// Ensure we have a valid world context
+	UWorld* TWorld = FindWorld();
+	if (!TWorld)
+	{
+		Error = TEXT("Invalid world context");
+		return false;
+	}
+	
+	// Check if a Beacon Host already exists
+	bool bBeaconHostExists = false;
+    for (TActorIterator<AOnlineBeaconHost> It(TWorld); It; ++It)
+	{
+		if (*It)
+		{
+			bBeaconHostExists = true;
+			break;
+		}
+	}
+
+	/* Initialize Beacon Host if it doesn't already exist
+	if (!bBeaconHostExists)
+	{
+        AOnlineBeaconHost* BeaconHost = TWorld->SpawnActor<AOnlineBeaconHost>();
+		if (BeaconHost)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Spawned Beacon Host"));
+			BeaconHost->SetNetDriverName(NAME_BeaconNetDriver);
+			BeaconHost->InitHost();
+			BeaconHost->PauseBeaconRequests(false);
+		}
+		else
+		{
+			UE_LOG(LogTemp, Warning, TEXT("Failed to spawn Beacon Host"));
+		}
+	}
+	*/
+
 	return true;
 }
 
-void UNetDriverEOS::TickDispatch(float DeltaTime)
+ISocketSubsystem* UNetDriverEOS::GetSocketSubsystem()
 {
-	Super::TickDispatch(DeltaTime);
-
-	// Handle any EOS-specific network ticking here
-	if (bIsInitialized && EOSSocketSubsystem)
+	if (bIsPassthrough)
 	{
-		// EOS P2P events are processed automatically by the SDK
-		// Additional processing can be added here if needed
+		return ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
 	}
-}
-
-void UNetDriverEOS::ProcessRemoteFunction(AActor* Actor, UFunction* Function, void* Parameters, FOutParmRec* OutParms, FFrame* Stack, UObject* SubObject)
-{
-	// Process remote function calls through EOS network
-	// This uses the standard Unreal replication system, which will use our EOS sockets
-	Super::ProcessRemoteFunction(Actor, Function, Parameters, OutParms, Stack, SubObject);
-}
-
-void UNetDriverEOS::LowLevelSend(TSharedPtr<const FInternetAddr> Address, void* Data, int32 CountBits, FOutPacketTraits& Traits)
-{
-	// Send data through EOS network layer
-	if (bIsInitialized && EOSSocketSubsystem)
+	UWorld* CurrentWorld = FindWorld();
+	FSocketSubsystemEOS* DefaultSocketSubsystem = static_cast<FSocketSubsystemEOS*>(ISocketSubsystem::Get(EOS_SOCKETSUBSYSTEM));
+	if (!DefaultSocketSubsystem)
 	{
-		// The actual sending is handled by FSocketEOS through the base class
-		Super::LowLevelSend(Address, Data, CountBits, Traits);
+		return ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
 	}
-	else
-	{
-		UE_LOG(LogNet, Warning, TEXT("UNetDriverEOS::LowLevelSend: Driver not initialized"));
-	}
+	return DefaultSocketSubsystem->GetSocketSubsystemForWorld(CurrentWorld);
 }
 
 void UNetDriverEOS::Shutdown()
 {
-	UE_LOG(LogNet, Log, TEXT("UNetDriverEOS: Shutting down"));
-	
-	bIsInitialized = false;
-	EOSSocketSubsystem = nullptr;
-	
 	Super::Shutdown();
+
+	// Kill our P2P sessions now, instead of when garbage collection kicks in later
+	if (!bIsPassthrough)
+	{
+		if(ServerConnection)
+		{
+			// Close EOS connection if it's an EOS connection
+			// Access socket - in UE 5.5, GetSocket() might not be available, so we use Socket directly
+			FSocket* CurSocket = nullptr;
+			if (UIpConnection* IpConnection = Cast<UIpConnection>(ServerConnection))
+			{
+#if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 6
+				CurSocket = IpConnection->GetSocket();
+#else
+				// UE 5.5 - Socket is accessible directly (deprecated but still works)
+				PRAGMA_DISABLE_DEPRECATION_WARNINGS
+				CurSocket = IpConnection->Socket;
+				PRAGMA_ENABLE_DEPRECATION_WARNINGS
+#endif
+			}
+			if (CurSocket)
+			{
+				FSocketEOS* EOSSocket = static_cast<FSocketEOS*>(CurSocket);
+				if (EOSSocket && ServerConnection->RemoteAddr.IsValid())
+				{
+					// Safely cast to FInternetAddrEOS - check if address string indicates EOS format
+					TSharedPtr<FInternetAddr> RemoteAddr = ServerConnection->RemoteAddr;
+					if (RemoteAddr.IsValid())
+					{
+						FString AddrString = RemoteAddr->ToString(false);
+						// Check if it's an EOS address by checking the format
+						if (AddrString.StartsWith(TEXT("EOS:")))
+						{
+							TSharedPtr<FInternetAddrEOS> RemoteAddrEOS = StaticCastSharedPtr<FInternetAddrEOS>(RemoteAddr);
+							if (RemoteAddrEOS.IsValid())
+							{
+								EOSSocket->Close(*RemoteAddrEOS);
+							}
+						}
+					}
+				}
+			}
+		}
+		for (UNetConnection* Client : ClientConnections)
+		{
+			if(Client)
+			{
+				// Access socket - in UE 5.5, GetSocket() might not be available, so we use Socket directly
+				FSocket* CurSocket = nullptr;
+				if (UIpConnection* IpConnection = Cast<UIpConnection>(Client))
+				{
+#if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 6
+					CurSocket = IpConnection->GetSocket();
+#else
+					// UE 5.5 - Socket is accessible directly (deprecated but still works)
+					PRAGMA_DISABLE_DEPRECATION_WARNINGS
+					CurSocket = IpConnection->Socket;
+					PRAGMA_ENABLE_DEPRECATION_WARNINGS
+#endif
+				}
+				if (CurSocket)
+				{
+					FSocketEOS* EOSSocket = static_cast<FSocketEOS*>(CurSocket);
+					if (EOSSocket && Client->RemoteAddr.IsValid())
+					{
+						// Safely cast to FInternetAddrEOS - check if address string indicates EOS format
+						TSharedPtr<FInternetAddr> RemoteAddr = Client->RemoteAddr;
+						if (RemoteAddr.IsValid())
+						{
+							FString AddrString = RemoteAddr->ToString(false);
+							// Check if it's an EOS address by checking the format
+							if (AddrString.StartsWith(TEXT("EOS:")))
+							{
+								TSharedPtr<FInternetAddrEOS> RemoteAddrEOS = StaticCastSharedPtr<FInternetAddrEOS>(RemoteAddr);
+								if (RemoteAddrEOS.IsValid())
+								{
+									EOSSocket->Close(*RemoteAddrEOS);
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+int UNetDriverEOS::GetClientPort()
+{
+	if (bIsPassthrough)
+	{
+		return Super::GetClientPort();
+	}
+
+	// Starting range of dynamic/private/ephemeral ports
+	return 49152;
+}
+
+bool UNetDriverEOS::IsBeaconDriver() const
+{
+	if (!GEngine) return false;
+
+	for (const auto &WorldContext : GEngine->GetWorldContexts())
+	{
+		if (UWorld *ItWorld = WorldContext.World())
+		{
+			for (AOnlineBeacon* Beacon : TActorRange<AOnlineBeacon>(ItWorld))
+			{
+				if (Beacon->GetNetDriver() == this)
+				{
+					return true;
+				}
+			}
+		}
+	}
+	return false;
+}
+
+	
+
+UWorld* UNetDriverEOS::FindWorld() const
+{
+	UWorld* MyWorld = GetWorld();
+	
+	// If we don't have a world, we may be a pending net driver
+	if (!MyWorld && GEngine)
+	{
+		if (FWorldContext* WorldContext = GEngine->GetWorldContextFromPendingNetGameNetDriver(this))
+		{
+			MyWorld = WorldContext->World();
+		}
+	}
+
+	if(!MyWorld)
+	{
+		if (GEngine != nullptr)
+		{
+			for (const auto &WorldContext : GEngine->GetWorldContexts())
+			{
+				UWorld *ItWorld = WorldContext.World();
+				if (ItWorld != nullptr)
+				{
+					for (TActorIterator<AOnlineBeacon> It(ItWorld); It; ++It)
+					{
+						if (It->GetNetDriver() == this)
+						{
+							return ItWorld;
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return MyWorld;
 }

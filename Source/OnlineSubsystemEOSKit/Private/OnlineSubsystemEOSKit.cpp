@@ -22,6 +22,7 @@
 #include "IEOSSDKManager.h"
 #include "IEOSKitPlatformHandle.h"
 #include "SocketSubsystemEOS.h"
+#include "SocketSubsystemEOSUtils_OnlineSubsystemEOSKit.h"
 #include "Misc/App.h"
 #include "Misc/ConfigCacheIni.h"
 #include "Misc/NetworkVersion.h"
@@ -135,6 +136,11 @@ bool FOnlineSubsystemEOSKit::Init()
 			
 			// Create interface implementations
 			SessionInterfacePtr = MakeShared<FOnlineSessionEOSKit, ESPMode::ThreadSafe>(this);
+			// Register callbacks after construction (can't use AsShared() during construction)
+			if (SessionInterfacePtr.IsValid())
+			{
+				SessionInterfacePtr->RegisterSessionInviteCallbacks();
+			}
 			IdentityInterfacePtr = MakeShared<FOnlineIdentityEOSKit, ESPMode::ThreadSafe>(this);
 			FriendsInterfacePtr = MakeShared<FOnlineFriendsEOSKit, ESPMode::ThreadSafe>(this);
 			PresenceInterfacePtr = MakeShared<FOnlinePresenceEOSKit, ESPMode::ThreadSafe>(this);
@@ -154,18 +160,19 @@ bool FOnlineSubsystemEOSKit::Init()
 			UE_LOG_ONLINE(Log, TEXT("FOnlineSubsystemEOSKit: Successfully retrieved EOS handles from SDK Manager and created all interfaces"));
 			
 			// Create and initialize the EOS socket subsystem (required for NetDriver)
-			FSocketSubsystemEOS* SocketSubsystem = FSocketSubsystemEOS::Create();
-			if (SocketSubsystem)
+			// Create utils interface and socket subsystem like EIK does
+			ISocketSubsystemEOSUtilsPtr UtilsPtr = MakeShareable(new FSocketSubsystemEOSUtils_OnlineSubsystemEOSKit(*this));
+			void* PlatformHandlePtr = UtilsPtr->GetPlatformHandle();
+			SocketSubsystem = MakeShareable(new FSocketSubsystemEOS(PlatformHandlePtr, UtilsPtr));
+			check(SocketSubsystem);
+			FString SocketError;
+			if (!SocketSubsystem->Init(SocketError))
 			{
-				FString SocketError;
-				if (SocketSubsystem->Init(SocketError))
-				{
-					UE_LOG_ONLINE(Log, TEXT("FOnlineSubsystemEOSKit: EOS Socket Subsystem initialized successfully"));
-				}
-				else
-				{
-					UE_LOG_ONLINE(Warning, TEXT("FOnlineSubsystemEOSKit: Failed to initialize EOS Socket Subsystem: %s"), *SocketError);
-				}
+				UE_LOG_ONLINE(Warning, TEXT("FOnlineSubsystemEOSKit: Failed to initialize EOS Socket Subsystem: %s"), *SocketError);
+			}
+			else
+			{
+				UE_LOG_ONLINE(Log, TEXT("FOnlineSubsystemEOSKit: EOS Socket Subsystem initialized successfully"));
 			}
 		}
 		else

@@ -159,11 +159,63 @@ void FOnlineSubsystemEOSKitModule::ConfigureOnlineSubsystemEOSKit()
 			bConfigChanged = true;
 		}
 
-		// Update [OnlineSubsystem] section
+		// Update [OnlineSubsystem] section - ensure DefaultPlatformService=EOSKit
 		if (!EngineIniText.Contains(TEXT("[OnlineSubsystem]")))
 		{
 			EngineIniText += TEXT("\n[OnlineSubsystem]\nDefaultPlatformService=EOSKit\n");
 			bConfigChanged = true;
+		}
+		else if (!EngineIniText.Contains(TEXT("DefaultPlatformService=EOSKit")))
+		{
+			// Section exists but DefaultPlatformService is wrong or missing
+			// Replace any existing value
+			if (EngineIniText.Contains(TEXT("DefaultPlatformService=")))
+			{
+				FString Pattern1 = TEXT("DefaultPlatformService=EOS");
+				FString Pattern2 = TEXT("DefaultPlatformService=NULL");
+				
+				if (EngineIniText.Contains(Pattern1) && !EngineIniText.Contains(TEXT("DefaultPlatformService=EOSKit")))
+				{
+					EngineIniText.ReplaceInline(*Pattern1, TEXT("DefaultPlatformService=EOSKit"));
+					bConfigChanged = true;
+				}
+				else if (EngineIniText.Contains(Pattern2))
+				{
+					EngineIniText.ReplaceInline(*Pattern2, TEXT("DefaultPlatformService=EOSKit"));
+					bConfigChanged = true;
+				}
+				else
+				{
+					// Replace any other value - find the line and replace it
+					int32 ServicePos = EngineIniText.Find(TEXT("DefaultPlatformService="));
+					if (ServicePos != INDEX_NONE)
+					{
+						int32 LineEnd = EngineIniText.Find(TEXT("\n"), ServicePos);
+						if (LineEnd == INDEX_NONE)
+						{
+							LineEnd = EngineIniText.Len();
+						}
+						FString OldLine = EngineIniText.Mid(ServicePos, LineEnd - ServicePos);
+						EngineIniText.ReplaceInline(*OldLine, TEXT("DefaultPlatformService=EOSKit"));
+						bConfigChanged = true;
+					}
+				}
+			}
+			else
+			{
+				// Add DefaultPlatformService if missing
+				int32 SectionPos = EngineIniText.Find(TEXT("[OnlineSubsystem]"));
+				if (SectionPos != INDEX_NONE)
+				{
+					int32 NextSectionPos = EngineIniText.Find(TEXT("\n["), SectionPos + 1);
+					if (NextSectionPos == INDEX_NONE)
+					{
+						NextSectionPos = EngineIniText.Len();
+					}
+					EngineIniText.InsertAt(NextSectionPos, TEXT("DefaultPlatformService=EOSKit\n"));
+					bConfigChanged = true;
+				}
+			}
 		}
 
 		// Update [/Script/OnlineSubsystemEOSKit.NetDriverEOS] section

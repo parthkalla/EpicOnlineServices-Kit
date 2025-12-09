@@ -11,10 +11,11 @@
 #endif
 #include "Async/Async.h"
 
-UEOS_Sessions_StartSession* UEOS_Sessions_StartSession::EOK_Sessions_StartSession(const FString& SessionName)
+UEOS_Sessions_StartSession* UEOS_Sessions_StartSession::EOK_Sessions_StartSession(UObject* WorldContextObject, const FString& SessionName)
 {
 	UEOS_Sessions_StartSession* Node = NewObject<UEOS_Sessions_StartSession>();
 	Node->Var_SessionName = SessionName;
+	Node->CachedWorldContextObject = WorldContextObject;
 	return Node;
 }
 
@@ -22,9 +23,17 @@ void UEOS_Sessions_StartSession::Activate()
 {
 	Super::Activate();
 
-	if (!GetWorld())
+	// Try to get WorldContextObject - use cached one or try GetWorld()
+	UObject* WorldContext = CachedWorldContextObject.Get();
+	if (!WorldContext)
 	{
-		UE_LOG(LogTemp, Error, TEXT("EOSKit: Failed to start session - World is null"));
+		UWorld* World = GetWorld();
+		WorldContext = World;
+	}
+
+	if (!WorldContext)
+	{
+		UE_LOG(LogTemp, Error, TEXT("EOSKit: Failed to start session - WorldContextObject is null"));
 		OnCallback.Broadcast(EEOSKitResult::InvalidState);
 		SetReadyToDestroy();
 #if ENGINE_MAJOR_VERSION == 5
@@ -35,7 +44,8 @@ void UEOS_Sessions_StartSession::Activate()
 		return;
 	}
 
-	UGameInstance* GameInstance = GetWorld()->GetGameInstance();
+	// Get GameInstance using WorldContextObject (works even if GetWorld() returns null)
+	UGameInstance* GameInstance = UGameplayStatics::GetGameInstance(WorldContext);
 	if (!GameInstance)
 	{
 		UE_LOG(LogTemp, Error, TEXT("EOSKit: Failed to start session - GameInstance is null"));
@@ -79,27 +89,73 @@ void UEOS_Sessions_StartSession::Activate()
 		return;
 	}
 
+	// Validate session name
+	if (Var_SessionName.IsEmpty())
+	{
+		UE_LOG(LogTemp, Error, TEXT("EOSKit: Failed to start session - Session Name is empty"));
+		OnCallback.Broadcast(EEOSKitResult::InvalidParameters);
+		SetReadyToDestroy();
+#if ENGINE_MAJOR_VERSION == 5
+		MarkAsGarbage();
+#else
+		MarkPendingKill();
+#endif
+		return;
+	}
+
+	// Convert to UTF8 - FTCHARToUTF8 stays alive for the duration of this function call
+	// EOS SDK copies the string internally, so we don't need to keep it alive after the call
+	FTCHARToUTF8 Utf8SessionName(*Var_SessionName);
+	
 	EOS_Sessions_StartSessionOptions StartSessionOptions = {};
 	StartSessionOptions.ApiVersion = EOS_SESSIONS_STARTSESSION_API_LATEST;
-	StartSessionOptions.SessionName = TCHAR_TO_ANSI(*Var_SessionName);
+	StartSessionOptions.SessionName = Utf8SessionName.Get();
 
+	UE_LOG(LogTemp, Warning, TEXT("EOSKit: Calling EOS_Sessions_StartSession for session: %s"), *Var_SessionName);
 	::EOS_Sessions_StartSession(SessionsHandle, &StartSessionOptions, this, &UEOS_Sessions_StartSession::OnStartSessionCallback);
 }
 
 void UEOS_Sessions_StartSession::OnStartSessionCallback(const EOS_Sessions_StartSessionCallbackInfo* Data)
 {
-	if (UEOS_Sessions_StartSession* Node = static_cast<UEOS_Sessions_StartSession*>(Data->ClientData))
+	if (!Data)
 	{
-		AsyncTask(ENamedThreads::GameThread, [Node, Data]()
-		{
-			Node->OnCallback.Broadcast(ConvertEOSResult(Data->ResultCode));
-		});
-		Node->SetReadyToDestroy();
-#if ENGINE_MAJOR_VERSION == 5
-		Node->MarkAsGarbage();
-#else
-		Node->MarkPendingKill();
-#endif
+		UE_LOG(LogTemp, Error, TEXT("EOSKit: StartSession callback received null Data"));
+		return;
 	}
+
+	UEOS_Sessions_StartSession* Node = static_cast<UEOS_Sessions_StartSession*>(Data->ClientData);
+	if (!Node)
+	{
+		UE_LOG(LogTemp, Error, TEXT("EOSKit: StartSession callback received null Node"));
+		return;
+	}
+
+	// Copy ResultCode before async task (Data pointer may become invalid)
+	EOS_EResult ResultCode = Data->ResultCode;
+	
+	// Execute on game thread
+	AsyncTask(ENamedThreads::GameThread, [Node, ResultCode]()
+	{
+		if (Node && IsValid(Node))
+		{
+			if (ResultCode == EOS_EResult::EOS_Success)
+			{
+				UE_LOG(LogTemp, Warning, TEXT("EOSKit: ✅ Session started successfully via SDK!"));
+			}
+			else
+			{
+				UE_LOG(LogTemp, Error, TEXT("EOSKit: ❌ Failed to start session: %s"), 
+					UTF8_TO_TCHAR(EOS_EResult_ToString(ResultCode)));
+			}
+			
+			Node->OnCallback.Broadcast(ConvertEOSResult(ResultCode));
+			Node->SetReadyToDestroy();
+#if ENGINE_MAJOR_VERSION == 5
+			Node->MarkAsGarbage();
+#else
+			Node->MarkPendingKill();
+#endif
+		}
+	});
 }
 

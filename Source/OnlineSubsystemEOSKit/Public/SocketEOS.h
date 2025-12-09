@@ -5,15 +5,103 @@
 #include "CoreMinimal.h"
 #include "Sockets.h"
 #include "InternetAddrEOS.h"
-#include "eos_p2p.h"
+#include "EOSKitSharedTypes.h"
 
-/**
- * Socket implementation for EOS P2P communication
- */
-class FSocketEOS : public FSocket
+class FSocketSubsystemEOS;
+
+#define WANTS_NP_LOGGING 0
+
+#if WANTS_NP_LOGGING
+	#define NP_LOG(Msg, ...) NpLog(*FString::Printf(Msg, __VA_ARGS__))
+
+	void NpLog(const TCHAR* Msg);
+#else
+	#define NP_LOG(Msg, ...)
+#endif
+
+#if WITH_EOS_SDK
+	#include "eos_p2p_types.h"
+#endif
+
+// FCallbackBase is defined in EOSKitSharedTypes.h
+
+#if WITH_EOS_SDK
+#if ENGINE_MAJOR_VERSION == 5
+// UE 5.x callback wrapper
+template<typename CallbackFuncType, typename CallbackParamType, typename OwningType>
+class TEOSGlobalCallback : public FCallbackBase
 {
 public:
-	FSocketEOS(const FString& InSocketDescription, EOS_HP2P InP2PHandle, EOS_ProductUserId InLocalUserId);
+	TFunction<void(const CallbackParamType*)> CallbackLambda;
+	TEOSGlobalCallback(TSharedPtr<OwningType> InOwner)
+		: FCallbackBase()
+		, Owner(InOwner)
+	{
+	}
+	virtual ~TEOSGlobalCallback() = default;
+
+	CallbackFuncType GetCallbackPtr()
+	{
+		return &CallbackImpl;
+	}
+
+	bool bIsGameThreadCallback = true;
+
+private:
+	TSharedPtr<OwningType> Owner;
+
+	static void EOS_CALL CallbackImpl(const CallbackParamType* Data)
+	{
+		TEOSGlobalCallback* CallbackThis = static_cast<TEOSGlobalCallback*>(Data->ClientData);
+		check(CallbackThis);
+
+		if (CallbackThis->bIsGameThreadCallback)
+		{
+			check(IsInGameThread());
+		}
+
+		if (CallbackThis->Owner.IsValid())
+		{
+			check(CallbackThis->CallbackLambda);
+			CallbackThis->CallbackLambda(Data);
+		}
+	}
+};
+#else
+// UE 4.x callback wrapper
+template<typename CallbackFuncType, typename CallbackType>
+class TEOSGlobalCallback : public FCallbackBase
+{
+public:
+	TFunction<void(const CallbackType*)> CallbackLambda;
+	TEOSGlobalCallback() = default;
+	virtual ~TEOSGlobalCallback() = default;
+
+	CallbackFuncType GetCallbackPtr()
+	{
+		return &CallbackImpl;
+	}
+
+	bool bIsGameThreadCallback = true;
+
+private:
+	static void EOS_CALL CallbackImpl(const CallbackType* Data)
+	{
+		TEOSGlobalCallback* CallbackThis = static_cast<TEOSGlobalCallback*>(Data->ClientData);
+		check(CallbackThis);
+
+		check(CallbackThis->CallbackLambda);
+		CallbackThis->CallbackLambda(Data);
+	}
+};
+#endif
+#endif
+
+class ONLINESUBSYSTEMEOSKIT_API FSocketEOS
+	: public FSocket
+{
+public:
+	FSocketEOS(FSocketSubsystemEOS& SocketSubsystem, const FString& InSocketDescription);
 	virtual ~FSocketEOS();
 
 	//~ Begin FSocket Interface
@@ -38,11 +126,11 @@ public:
 	virtual bool SetBroadcast(bool bAllowBroadcast = true) override;
 	virtual bool SetNoDelay(bool bIsNoDelay = true) override;
 	virtual bool JoinMulticastGroup(const FInternetAddr& GroupAddress) override;
-	virtual bool JoinMulticastGroup(const FInternetAddr& GroupAddress, const FInternetAddr& InterfaceAddress) override;
 	virtual bool LeaveMulticastGroup(const FInternetAddr& GroupAddress) override;
-	virtual bool LeaveMulticastGroup(const FInternetAddr& GroupAddress, const FInternetAddr& InterfaceAddress) override;
 	virtual bool SetMulticastLoopback(bool bLoopback) override;
 	virtual bool SetMulticastTtl(uint8 TimeToLive) override;
+	virtual bool JoinMulticastGroup(const FInternetAddr& GroupAddress, const FInternetAddr& InterfaceAddress) override;
+	virtual bool LeaveMulticastGroup(const FInternetAddr& GroupAddress, const FInternetAddr& InterfaceAddress) override;
 	virtual bool SetMulticastInterface(const FInternetAddr& InterfaceAddress) override;
 	virtual bool SetReuseAddr(bool bAllowReuse = true) override;
 	virtual bool SetLinger(bool bShouldLinger = true, int32 Timeout = 0) override;
@@ -52,33 +140,45 @@ public:
 	virtual int32 GetPortNo() override;
 	//~ End FSocket Interface
 
-	/**
-	 * Set the remote address to send data to
-	 */
-	void SetRemoteAddr(const FInternetAddrEOS& InRemoteAddr);
+	void SetLocalAddress(const FInternetAddrEOS& InLocalAddress);
 
-protected:
-	/** Handle to the EOS P2P interface */
-	EOS_HP2P P2PHandle;
+	bool Close(const FInternetAddrEOS& RemoteAddress);
 
-	/** Local user's Product User ID */
-	EOS_ProductUserId LocalUserId;
+	bool WasClosed(const FInternetAddrEOS& RemoteAddress)
+	{
+		int32 Index = -1;
+		return ClosedRemotes.Find(RemoteAddress, Index);
+	}
 
-	/** Remote user's Product User ID for connection */
-	EOS_ProductUserId RemoteUserId;
+	void RegisterClosedNotification();
 
-	/** Socket description for debugging */
-	FString SocketDescription;
+private:
+	/** Used to track our aliveness and make it possible to use the callback interface */
+	TSharedPtr<FCallbackBase> CallbackAliveTracker;
 
-	/** Is this socket in non-blocking mode */
-	bool bIsNonBlocking;
+	/** Reference to our subsystem */
+	FSocketSubsystemEOS& SocketSubsystem;
 
-	/** Connection state */
-	ESocketConnectionState ConnectionState;
+	/** Our local address; session/port will be invalid when not bound */
+	FInternetAddrEOS LocalAddress;
 
-	/** Channel for P2P communication */
-	static constexpr uint8 P2P_CHANNEL = 0;
+	/** Are we currently listening? */
+	bool bIsListening;
 
-	/** Socket reliability mode */
-	EOS_EPacketReliability ReliabilityMode;
+	TArray<FInternetAddrEOS> ClosedRemotes;
+
+#if WITH_EOS_SDK
+#if ENGINE_MAJOR_VERSION == 5
+	typedef TEOSGlobalCallback<EOS_P2P_OnIncomingConnectionRequestCallback, EOS_P2P_OnIncomingConnectionRequestInfo, FCallbackBase> FConnectNotifyCallback;
+	typedef TEOSGlobalCallback<EOS_P2P_OnRemoteConnectionClosedCallback, EOS_P2P_OnRemoteConnectionClosedInfo, FCallbackBase> FClosedNotifyCallback;
+#else
+	typedef TEOSGlobalCallback<EOS_P2P_OnIncomingConnectionRequestCallback, EOS_P2P_OnIncomingConnectionRequestInfo> FConnectNotifyCallback;
+	typedef TEOSGlobalCallback<EOS_P2P_OnRemoteConnectionClosedCallback, EOS_P2P_OnRemoteConnectionClosedInfo> FClosedNotifyCallback;
+#endif
+	FConnectNotifyCallback* ConnectNotifyCallback;
+	EOS_NotificationId ConnectNotifyId;
+
+	FClosedNotifyCallback* ClosedNotifyCallback;
+	EOS_NotificationId ClosedNotifyId;
+#endif
 };

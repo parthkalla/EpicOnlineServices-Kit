@@ -1,229 +1,157 @@
 // Copyright (C) 2024, All Rights Reserved.
 
 #include "SocketSubsystemEOS.h"
+#include "InternetAddrEOS.h"
 #include "SocketEOS.h"
-#include "EOSKitSubsystem.h"
-#include "Misc/CommandLine.h"
-#include "Misc/Parse.h"
+#include "SocketTypes.h"
+#include "Containers/Ticker.h"
+#include "Misc/ConfigCacheIni.h"
 #include "SocketSubsystemModule.h"
 #include "Modules/ModuleManager.h"
+#include "Misc/OutputDeviceRedirector.h"
+#include "OnlineSubsystemUtils.h"
+
 #if WITH_EOS_SDK
-#include "Windows/AllowWindowsPlatformTypes.h"
-#include "eos_sdk.h"
-#include "eos_p2p.h"
-#include "Windows/HideWindowsPlatformTypes.h"
+	#include "eos_sdk.h"
 #endif
 
-#ifndef EOS_SOCKETSUBSYSTEM
-#define EOS_SOCKETSUBSYSTEM FName(TEXT("EOS"))
-#endif
+TArray<FSocketSubsystemEOS*> FSocketSubsystemEOS::SocketSubsystemEOSInstances;
+TMap<UWorld*, FSocketSubsystemEOS*> FSocketSubsystemEOS::SocketSubsystemEOSPerWorldMap;
 
-FSocketSubsystemEOS* FSocketSubsystemEOS::SocketSingleton = nullptr;
-
-FSocketSubsystemEOS* FSocketSubsystemEOS::Create()
-{
-	if (SocketSingleton == nullptr)
-	{
-		SocketSingleton = new FSocketSubsystemEOS();
-	}
-
-	return SocketSingleton;
-}
-
-void FSocketSubsystemEOS::Destroy()
-{
-	if (SocketSingleton != nullptr)
-	{
-		SocketSingleton->Shutdown();
-		delete SocketSingleton;
-		SocketSingleton = nullptr;
-	}
-}
-
-FSocketSubsystemEOS::FSocketSubsystemEOS()
+FSocketSubsystemEOS::FSocketSubsystemEOS(void* InPlatformHandle, ISocketSubsystemEOSUtilsPtr InUtils)
 	: P2PHandle(nullptr)
-	, LocalProductUserId(nullptr)
-	, LastSocketError(SE_NO_ERROR)
+	, Utils(InUtils)
+	, LastSocketError(ESocketErrors::SE_NO_ERROR)
 {
+#if WITH_EOS_SDK
+	if (InPlatformHandle)
+	{
+		EOS_HPlatform EOSPlatformHandle = static_cast<EOS_HPlatform>(InPlatformHandle);
+		P2PHandle = EOS_Platform_GetP2PInterface(EOSPlatformHandle);
+		if (P2PHandle == nullptr)
+		{
+			UE_LOG(LogNet, Error, TEXT("FSocketSubsystemEOS: failed to init EOS platform, couldn't get p2p handle"));
+		}
+	}
+#endif
+}
+
+FSocketSubsystemEOS::~FSocketSubsystemEOS()
+{
+	// Close all tracked sockets BEFORE destroying Utils
+	// This ensures sockets can still access Utils during their cleanup
+	for (auto& SocketPtr : TrackedSockets)
+	{
+		if (SocketPtr.IsValid())
+		{
+			SocketPtr->Close();
+		}
+	}
+	TrackedSockets.Empty();
+	
+	// Now safe to clear Utils
+	Utils = nullptr;
+}
+
+FSocketSubsystemEOS* FSocketSubsystemEOS::GetSocketSubsystemForWorld(UWorld* InWorld)
+{
+	FSocketSubsystemEOS** Result = SocketSubsystemEOSPerWorldMap.Find(InWorld);
+
+	if(!Result)
+	{
+		for (FSocketSubsystemEOS* SocketSubsystem : SocketSubsystemEOSInstances)
+		{
+			const UWorld* NewWorld = GetWorldForOnline(SocketSubsystem->Utils->GetSubsystemInstanceName());
+
+			if (NewWorld == InWorld)
+			{
+				SocketSubsystemEOSPerWorldMap.Add(InWorld, SocketSubsystem);
+
+				Result = &SocketSubsystem;
+
+				break;
+			}
+		}
+	}
+
+	return Result ? *Result : nullptr;
 }
 
 bool FSocketSubsystemEOS::Init(FString& Error)
 {
-	// Get the EOSKit subsystem to retrieve the P2P handle and local user ID
-	if (GEngine)
-	{
-		UGameInstance* GameInstance = nullptr;
-		
-		// Try to get the game instance from the first world
-		for (const FWorldContext& Context : GEngine->GetWorldContexts())
-		{
-			if (Context.World() && Context.World()->GetGameInstance())
-			{
-				GameInstance = Context.World()->GetGameInstance();
-				break;
-			}
-		}
+	SocketSubsystemEOSInstances.Add(this);
 
-		if (GameInstance)
-		{
-			UEOSKitSubsystem* EOSKitSubsystem = GameInstance->GetSubsystem<UEOSKitSubsystem>();
-			if (EOSKitSubsystem && EOSKitSubsystem->GetPlatformHandle())
-			{
-				P2PHandle = EOS_Platform_GetP2PInterface(EOSKitSubsystem->GetPlatformHandle());
-				LocalProductUserId = EOSKitSubsystem->GetProductUserId();
+	FSocketSubsystemModule& SocketSubsystem = FModuleManager::LoadModuleChecked<FSocketSubsystemModule>("Sockets");
+	SocketSubsystem.RegisterSocketSubsystem(EOS_SOCKETSUBSYSTEM, this, false);
 
-				if (P2PHandle && LocalProductUserId)
-				{
-					// Register this socket subsystem with Unreal's socket subsystem module (CRITICAL for NetDriver selection)
-					FSocketSubsystemModule& SocketSubsystem = FModuleManager::LoadModuleChecked<FSocketSubsystemModule>("Sockets");
-					SocketSubsystem.RegisterSocketSubsystem(EOS_SOCKETSUBSYSTEM, this, false);
-					
-					UE_LOG(LogNet, Log, TEXT("FSocketSubsystemEOS: Initialized and registered successfully"));
-					return true;
-				}
-				else
-				{
-					Error = TEXT("Failed to get P2P handle or ProductUserId from EOSKit");
-					UE_LOG(LogNet, Error, TEXT("FSocketSubsystemEOS: %s"), *Error);
-				}
-			}
-			else
-			{
-				Error = TEXT("EOSKitSubsystem not available or not initialized");
-				UE_LOG(LogNet, Error, TEXT("FSocketSubsystemEOS: %s"), *Error);
-			}
-		}
-		else
-		{
-			Error = TEXT("Game Instance not available");
-			UE_LOG(LogNet, Error, TEXT("FSocketSubsystemEOS: %s"), *Error);
-		}
-	}
-	else
-	{
-		Error = TEXT("GEngine not available");
-		UE_LOG(LogNet, Error, TEXT("FSocketSubsystemEOS: %s"), *Error);
-	}
-
-	return false;
+	return true;
 }
 
 void FSocketSubsystemEOS::Shutdown()
 {
-	UE_LOG(LogNet, Log, TEXT("FSocketSubsystemEOS: Shutting down"));
-	
-	// Unregister from socket subsystem module
+	RemoveFromStaticContainers();
+
+	// Destruct our sockets before we finish destructing, as they maintain a reference to us
+	TrackedSockets.Reset();
+
 	if (FSocketSubsystemModule* SocketSubsystem = FModuleManager::GetModulePtr<FSocketSubsystemModule>("Sockets"))
 	{
 		SocketSubsystem->UnregisterSocketSubsystem(EOS_SOCKETSUBSYSTEM);
 	}
-	
-	P2PHandle = nullptr;
-	LocalProductUserId = nullptr;
 }
 
-FSocket* FSocketSubsystemEOS::CreateSocket(const FName& SocketType, const FString& SocketDescription, const FName& ProtocolType)
+void FSocketSubsystemEOS::RemoveFromStaticContainers()
 {
-	if (!P2PHandle || !LocalProductUserId)
+	for (TMap<UWorld*, FSocketSubsystemEOS*>::TIterator Iter(SocketSubsystemEOSPerWorldMap); Iter; ++Iter)
 	{
-		UE_LOG(LogNet, Error, TEXT("FSocketSubsystemEOS::CreateSocket: P2P not initialized"));
-		return nullptr;
+		if (Iter.Value() == this)
+		{
+			Iter.RemoveCurrent();
+		}
 	}
 
-	FSocket* NewSocket = new FSocketEOS(SocketDescription, P2PHandle, LocalProductUserId);
-	UE_LOG(LogNet, Log, TEXT("FSocketSubsystemEOS: Created socket %s"), *SocketDescription);
-	return NewSocket;
+	SocketSubsystemEOSInstances.Remove(this);
+}
+
+FSocket* FSocketSubsystemEOS::CreateSocket(const FName& SocketTypeName, const FString& SocketDescription, const FName& /*unused*/)
+{
+	return TrackedSockets.Emplace_GetRef(MakeUnique<FSocketEOS>(*this, SocketDescription)).Get();
+}
+
+FResolveInfoCached* FSocketSubsystemEOS::CreateResolveInfoCached(TSharedPtr<FInternetAddr> Addr) const
+{
+	return nullptr;
 }
 
 void FSocketSubsystemEOS::DestroySocket(FSocket* Socket)
 {
-	if (Socket)
+	for (auto It = TrackedSockets.CreateIterator(); It; ++It)
 	{
-		delete Socket;
+		if (It->IsValid() && It->Get() == Socket)
+		{
+			It.RemoveCurrent();
+			return;
+		}
 	}
 }
 
-FAddressInfoResult FSocketSubsystemEOS::GetAddressInfo(const TCHAR* HostName, const TCHAR* ServiceName,
-	EAddressInfoFlags QueryFlags, const FName ProtocolTypeName, ESocketType SocketType)
+FAddressInfoResult FSocketSubsystemEOS::GetAddressInfo(const TCHAR* HostName, const TCHAR* ServiceName, EAddressInfoFlags /*unused*/, const FName /*unused*/, ESocketType /*unused*/)
 {
-	// Create an EOS address from the hostname.
-	// HostName may be:
-	//   - A raw ProductUserId           (0002....)
-	//   - An EOS address string         (EOS:ProductUserId:GameNetDriver:26)
-	FAddressInfoResult Result(HostName, ServiceName);
-
-	FString HostString(HostName);
-	UE_LOG(LogNet, Warning, TEXT("FSocketSubsystemEOS::GetAddressInfo: HostName='%s', ServiceName='%s'"), HostName, ServiceName ? ServiceName : TEXT("NULL"));
-
-	// Strip EOS: prefix if present
-	if (HostString.StartsWith(TEXT("EOS:"), ESearchCase::IgnoreCase))
-	{
-		HostString = HostString.RightChop(4);
-		UE_LOG(LogNet, Warning, TEXT("FSocketSubsystemEOS::GetAddressInfo: Stripped EOS: prefix, HostString='%s'"), *HostString);
-	}
-
-	// For EOS address strings (ProductUserId:GameNetDriver:26), keep only the ProductUserId
-	TArray<FString> Parts;
-	HostString.ParseIntoArray(Parts, TEXT(":"), true);
-	if (Parts.Num() >= 1)
-	{
-		HostString = Parts[0];
-		UE_LOG(LogNet, Warning, TEXT("FSocketSubsystemEOS::GetAddressInfo: Extracted ProductUserId='%s' from parts (total parts: %d)"), *HostString, Parts.Num());
-	}
-
-	TSharedRef<FInternetAddrEOS> EOSAddr = MakeShared<FInternetAddrEOS>();
-	EOSAddr->SetProductUserId(*HostString);
-
-	if (EOSAddr->IsValid())
-	{
-		UE_LOG(LogNet, Warning, TEXT("FSocketSubsystemEOS::GetAddressInfo: ✅ Successfully created EOS address for ProductUserId='%s'"), *HostString);
-		Result.Results.Add(FAddressInfoResultData(EOSAddr, 0, ProtocolTypeName, SocketType));
-		Result.ReturnCode = SE_NO_ERROR;
-	}
-	else
-	{
-		UE_LOG(LogNet, Error, TEXT("FSocketSubsystemEOS::GetAddressInfo: ❌ Failed to create valid EOS address for HostString='%s' (original HostName='%s')"), *HostString, HostName);
-		LastSocketError = SE_HOST_NOT_FOUND;
-		Result.ReturnCode = SE_HOST_NOT_FOUND;
-	}
-
-	return Result;
+	return FAddressInfoResult(HostName, ServiceName);
 }
 
-TSharedPtr<FInternetAddr> FSocketSubsystemEOS::GetAddressFromString(const FString& InAddress)
+bool FSocketSubsystemEOS::RequiresChatDataBeSeparate()
 {
-	// Support both raw ProductUserId and EOS:ProductUserId:GameNetDriver:26 formats
-	FString HostString(InAddress);
+	return false;
+}
 
-	if (HostString.StartsWith(TEXT("EOS:"), ESearchCase::IgnoreCase))
-	{
-		HostString = HostString.RightChop(4);
-	}
-
-	TArray<FString> Parts;
-	HostString.ParseIntoArray(Parts, TEXT(":"), true);
-	if (Parts.Num() >= 1)
-	{
-		HostString = Parts[0];
-	}
-
-	TSharedRef<FInternetAddrEOS> EOSAddr = MakeShared<FInternetAddrEOS>();
-	EOSAddr->SetProductUserId(*HostString);
-	return EOSAddr;
+bool FSocketSubsystemEOS::RequiresEncryptedPackets()
+{
+	return false;
 }
 
 bool FSocketSubsystemEOS::GetHostName(FString& HostName)
 {
-	if (LocalProductUserId)
-	{
-		char ProductUserIdStr[EOS_PRODUCTUSERID_MAX_LENGTH + 1];
-		int32_t ProductUserIdStrSize = sizeof(ProductUserIdStr);
-		if (EOS_ProductUserId_ToString(LocalProductUserId, ProductUserIdStr, &ProductUserIdStrSize) == EOS_EResult::EOS_Success)
-		{
-			HostName = UTF8_TO_TCHAR(ProductUserIdStr);
-			return true;
-		}
-	}
 	return false;
 }
 
@@ -232,116 +160,285 @@ TSharedRef<FInternetAddr> FSocketSubsystemEOS::CreateInternetAddr()
 	return MakeShared<FInternetAddrEOS>();
 }
 
+TSharedPtr<FInternetAddr> FSocketSubsystemEOS::GetAddressFromString(const FString& InString)
+{
+	bool bUnused;
+	TSharedPtr<FInternetAddrEOS> NewAddress = StaticCastSharedRef<FInternetAddrEOS>(CreateInternetAddr());
+	NewAddress->SetIp(*InString, bUnused);
+	return NewAddress;
+}
+
 bool FSocketSubsystemEOS::HasNetworkDevice()
 {
-	// EOS P2P is always available if we have a valid P2P handle
-	return P2PHandle != nullptr && LocalProductUserId != nullptr;
+	return true;
 }
 
 const TCHAR* FSocketSubsystemEOS::GetSocketAPIName() const
 {
-	return TEXT("EOS");
+	return TEXT("p2pSocketsEOS");
 }
 
 ESocketErrors FSocketSubsystemEOS::GetLastErrorCode()
 {
-	return LastSocketError;
+	return TranslateErrorCode(LastSocketError);
 }
 
 ESocketErrors FSocketSubsystemEOS::TranslateErrorCode(int32 Code)
 {
-	// Map EOS error codes to socket errors
-	EOS_EResult EOSResult = static_cast<EOS_EResult>(Code);
-
-	switch (EOSResult)
-	{
-	case EOS_EResult::EOS_Success:
-		return SE_NO_ERROR;
-	case EOS_EResult::EOS_NotFound:
-		return SE_HOST_NOT_FOUND;
-	case EOS_EResult::EOS_NoConnection:
-		return SE_NO_RECOVERY;
-	case EOS_EResult::EOS_InvalidParameters:
-		return SE_EINVAL;
-	case EOS_EResult::EOS_TimedOut:
-		return SE_ETIMEDOUT;
-	default:
-		return SE_NO_ERROR;
-	}
+	return static_cast<ESocketErrors>(Code);
 }
 
 bool FSocketSubsystemEOS::GetLocalAdapterAddresses(TArray<TSharedPtr<FInternetAddr>>& OutAddresses)
 {
-	if (LocalProductUserId)
-	{
-		TSharedRef<FInternetAddrEOS> LocalAddr = MakeShared<FInternetAddrEOS>();
-		char ProductUserIdStr[EOS_PRODUCTUSERID_MAX_LENGTH + 1];
-		int32_t ProductUserIdStrSize = sizeof(ProductUserIdStr);
-		if (EOS_ProductUserId_ToString(LocalProductUserId, ProductUserIdStr, &ProductUserIdStrSize) == EOS_EResult::EOS_Success)
-		{
-			LocalAddr->SetProductUserId(UTF8_TO_TCHAR(ProductUserIdStr));
-			OutAddresses.Add(LocalAddr);
-			return true;
-		}
-	}
-	return false;
+	TSharedRef<FInternetAddr> AdapterAddress = GetLocalBindAddr(nullptr, *GLog);
+	OutAddresses.Add(AdapterAddress);
+	return true;
 }
 
 TArray<TSharedRef<FInternetAddr>> FSocketSubsystemEOS::GetLocalBindAddresses()
 {
-	TArray<TSharedRef<FInternetAddr>> Results;
-	
-	if (LocalProductUserId)
-	{
-		TSharedRef<FInternetAddrEOS> LocalAddr = MakeShared<FInternetAddrEOS>();
-		char ProductUserIdStr[EOS_PRODUCTUSERID_MAX_LENGTH + 1];
-		int32_t ProductUserIdStrSize = sizeof(ProductUserIdStr);
-		if (EOS_ProductUserId_ToString(LocalProductUserId, ProductUserIdStr, &ProductUserIdStrSize) == EOS_EResult::EOS_Success)
-		{
-			LocalAddr->SetProductUserId(UTF8_TO_TCHAR(ProductUserIdStr));
-			Results.Add(LocalAddr);
-		}
-	}
-	
-	return Results;
+	TArray<TSharedRef<FInternetAddr>> OutAddresses;
+	OutAddresses.Add(GetLocalBindAddr(nullptr, *GLog));
+	return OutAddresses;
 }
 
 TSharedRef<FInternetAddr> FSocketSubsystemEOS::GetLocalBindAddr(FOutputDevice& Out)
 {
-	TSharedRef<FInternetAddrEOS> BoundAddr = MakeShared<FInternetAddrEOS>();
-	
-	if (!LocalProductUserId)
+	return GetLocalBindAddr(nullptr, Out);
+}
+
+#if WITH_EOS_SDK
+EOS_HP2P FSocketSubsystemEOS::GetP2PHandle()
+{
+	check(P2PHandle != nullptr);
+	return P2PHandle;
+}
+
+EOS_ProductUserId FSocketSubsystemEOS::GetLocalUserId()
+{
+	if (!Utils.IsValid())
 	{
-		UE_LOG(LogNet, Error, TEXT("FSocketSubsystemEOS::GetLocalBindAddr: No local ProductUserId"));
+		UE_LOG(LogSocketSubsystemEOS, Warning, TEXT("GetLocalUserId called but Utils is invalid (likely during shutdown)"));
+		return nullptr;
+	}
+	return Utils->GetLocalUserId();
+}
+#endif
+
+TSharedRef<FInternetAddr> FSocketSubsystemEOS::GetLocalBindAddr(const UWorld* const OwningWorld, FOutputDevice& Out)
+{
+	TSharedRef<FInternetAddrEOS> BoundAddr = MakeShared<FInternetAddrEOS>();
+
+#if WITH_EOS_SDK
+	EOS_ProductUserId LocalUserId = GetLocalUserId();
+	if (LocalUserId == nullptr)
+	{
+		UE_LOG(LogNet, Error, TEXT("No local user to send p2p packets with"));
 		return BoundAddr;
 	}
-	
-	char ProductUserIdStr[EOS_PRODUCTUSERID_MAX_LENGTH + 1];
-	int32_t ProductUserIdStrSize = sizeof(ProductUserIdStr);
-	if (EOS_ProductUserId_ToString(LocalProductUserId, ProductUserIdStr, &ProductUserIdStrSize) == EOS_EResult::EOS_Success)
-	{
-		BoundAddr->SetProductUserId(UTF8_TO_TCHAR(ProductUserIdStr));
-		// Set socket name to GameSession (default session name)
-		BoundAddr->SetSocketName(TEXT("GameSession"));
-	}
-	
+	BoundAddr->SetLocalUserId(LocalUserId);
+#else
 	return BoundAddr;
-}
+#endif
 
-bool FSocketSubsystemEOS::RequiresChatDataBeSeparate()
-{
-	// EOS P2P does not require chat data to be separate
-	return false;
-}
+	FString SessionId = Utils->GetSessionId();
 
-bool FSocketSubsystemEOS::RequiresEncryptedPackets()
-{
-	// EOS P2P handles encryption internally
-	return false;
+	if (SessionId.IsEmpty())
+	{
+		SessionId = FName(NAME_GameSession).ToString();
+	}
+
+	BoundAddr->SetSocketName(SessionId);
+
+	return BoundAddr;
 }
 
 bool FSocketSubsystemEOS::IsSocketWaitSupported() const
 {
-	// Socket wait is supported
+	return false;
+}
+
+void FSocketSubsystemEOS::SetLastSocketError(const ESocketErrors NewSocketError)
+{
+	LastSocketError = NewSocketError;
+}
+
+bool FSocketSubsystemEOS::BindChannel(const FInternetAddrEOS& Address)
+{
+	if (!Address.IsValid())
+	{
+		SetLastSocketError(ESocketErrors::SE_EINVAL);
+		UE_LOG(LogSocketSubsystemEOS, Warning, TEXT("BindChannel failed: Invalid address"));
+		return false;
+	}
+
+	const uint8 Channel = Address.GetChannel();
+	const FString SocketName = Address.GetSocketName();
+
+	FChannelSet& ExistingBoundPorts = BoundAddresses.FindOrAdd(SocketName);
+	
+	// In EOS P2P, multiple sockets can use the same socket name + channel combination
+	// (e.g., multiple clients connecting to the same host on the same machine)
+	// So we allow the binding even if it's already in the set
+	// The actual uniqueness is enforced by EOS P2P itself based on LocalUserId + RemoteUserId
+	if (ExistingBoundPorts.Contains(Channel))
+	{
+		UE_LOG(LogSocketSubsystemEOS, Verbose, TEXT("BindChannel: Channel %d already in bound set for socket '%hs', but allowing (multiple clients can share same socket/channel in EOS P2P)"), 
+			Channel, Address.GetSocketName());
+		// Don't return false - allow the binding
+		// The channel is already tracked, so we don't need to add it again
+	}
+	else
+	{
+		ExistingBoundPorts.Add(Channel);
+		UE_LOG(LogSocketSubsystemEOS, Verbose, TEXT("BindChannel succeeded: Channel %d bound for socket '%s'"), Channel, *SocketName);
+	}
+	
+	return true;
+}
+
+bool FSocketSubsystemEOS::UnbindChannel(const FInternetAddrEOS& Address)
+{
+	if (!Address.IsValid())
+	{
+		SetLastSocketError(ESocketErrors::SE_EINVAL);
+		return false;
+	}
+
+	const FString SocketName = Address.GetSocketName();
+	const uint8 Channel = Address.GetChannel();
+
+	// Find our sessions collection of ports
+	FChannelSet* ExistingBoundPorts = BoundAddresses.Find(SocketName);
+	if (!ExistingBoundPorts)
+	{
+		SetLastSocketError(ESocketErrors::SE_ENOTSOCK);
+		return false;
+	}
+
+	// Remove our port and check if we had it bound
+	if (ExistingBoundPorts->Remove(Channel) == 0)
+	{
+		SetLastSocketError(ESocketErrors::SE_ENOTSOCK);
+		return false;
+	}
+
+	// Remove any empty sets
+	if (ExistingBoundPorts->Num() == 0)
+	{
+		BoundAddresses.Remove(SocketName);
+		ExistingBoundPorts = nullptr;
+	}
+
+	return true;
+}
+
+TUniquePtr<FSocket> FSocketSubsystemEOS::CreateUniqueSocket(const FName& SocketType, const FString& SocketDescription, const FName& ProtocolType)
+{
+	// Note: This method is kept for compatibility but is not currently used.
+	// NetDriverEOS uses CreateSocket() directly instead.
+	// If needed in the future, this would need to return a unique_ptr with a custom deleter
+	// that doesn't delete the socket (since it's managed by TrackedSockets).
+	// For now, we return an empty unique_ptr to avoid compilation errors.
+	return TUniquePtr<FSocket>();
+}
+
+bool FSocketSubsystemEOS::BindNextPort(FSocket* Socket, const FInternetAddrEOS& Address, int32 PortCount, int32 PortIncrement)
+{
+	// For EOS P2P, we bind to a local address
+	// For clients: Use the socket's existing local address (from InitBase) but match the remote's socket name/channel
+	// For hosts: Use the address parameter directly
+	if (!Socket)
+	{
+		SetLastSocketError(ESocketErrors::SE_EINVAL);
+		UE_LOG(LogSocketSubsystemEOS, Warning, TEXT("BindNextPort failed: Invalid socket"));
+		return false;
+	}
+
+	// Check if socket already has a local address set (from InitBase)
+	FSocketEOS* EOSSocket = static_cast<FSocketEOS*>(Socket);
+	FInternetAddrEOS LocalBindAddress;
+	
+	if (EOSSocket)
+	{
+		FInternetAddrEOS ExistingLocalAddr;
+		EOSSocket->GetAddress(ExistingLocalAddr);
+		
+		// If socket already has a valid local address, use it but update socket name/channel to match remote
+		if (ExistingLocalAddr.IsValid() && ExistingLocalAddr.GetLocalUserId() != nullptr)
+		{
+			LocalBindAddress = ExistingLocalAddr;
+			// Update to match remote's socket name and channel (required for P2P to work)
+			LocalBindAddress.SetSocketName(Address.GetSocketName());
+			LocalBindAddress.SetChannel(Address.GetChannel());
+		}
+		else
+		{
+			// No existing address, create new one matching remote
+			LocalBindAddress.SetLocalUserId(GetLocalUserId());
+			LocalBindAddress.SetSocketName(Address.GetSocketName());
+			LocalBindAddress.SetChannel(Address.GetChannel());
+		}
+	}
+	else
+	{
+		// Fallback: create new address matching remote
+		LocalBindAddress.SetLocalUserId(GetLocalUserId());
+		LocalBindAddress.SetSocketName(Address.GetSocketName());
+		LocalBindAddress.SetChannel(Address.GetChannel());
+	}
+
+	UE_LOG(LogSocketSubsystemEOS, Verbose, TEXT("BindNextPort: Attempting to bind socket '%hs' to channel %d"), 
+		Address.GetSocketName(), Address.GetChannel());
+
+	// Check if this socket already has this channel bound (to avoid double-binding)
+	// If the socket already has the same socket name and channel, we can skip BindChannel
+	bool bNeedsChannelBind = true;
+	if (EOSSocket)
+	{
+		FInternetAddrEOS CurrentLocalAddr;
+		EOSSocket->GetAddress(CurrentLocalAddr);
+		if (CurrentLocalAddr.IsValid() && 
+			CurrentLocalAddr.GetSocketName() == LocalBindAddress.GetSocketName() &&
+			CurrentLocalAddr.GetChannel() == LocalBindAddress.GetChannel())
+		{
+			// Socket already has this exact binding, skip channel bind
+			bNeedsChannelBind = false;
+			UE_LOG(LogSocketSubsystemEOS, Verbose, TEXT("BindNextPort: Socket already has channel %d bound for socket '%hs', skipping BindChannel"), 
+				Address.GetChannel(), Address.GetSocketName());
+		}
+	}
+
+	// Bind the channel first (if needed)
+	if (bNeedsChannelBind)
+	{
+		if (!BindChannel(LocalBindAddress))
+		{
+			UE_LOG(LogSocketSubsystemEOS, Error, TEXT("BindNextPort failed: Could not bind channel %d for socket '%hs'. Error: %d"), 
+				Address.GetChannel(), Address.GetSocketName(), (int32)GetLastErrorCode());
+			return false;
+		}
+	}
+
+	// Then bind the socket
+	if (!Socket->Bind(LocalBindAddress))
+	{
+		UE_LOG(LogSocketSubsystemEOS, Error, TEXT("BindNextPort failed: Socket->Bind() failed for socket '%hs' channel %d"), 
+			Address.GetSocketName(), Address.GetChannel());
+		if (bNeedsChannelBind)
+		{
+			UnbindChannel(LocalBindAddress);
+		}
+		return false;
+	}
+
+	// Update the socket's local address
+	if (EOSSocket)
+	{
+		EOSSocket->SetLocalAddress(LocalBindAddress);
+	}
+
+	UE_LOG(LogSocketSubsystemEOS, Verbose, TEXT("BindNextPort succeeded: Socket '%hs' bound to channel %d"), 
+		Address.GetSocketName(), Address.GetChannel());
 	return true;
 }
