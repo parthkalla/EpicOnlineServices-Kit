@@ -24,8 +24,14 @@ UNetDriverEOS::UNetDriverEOS(const FObjectInitializer& ObjectInitializer)
 {
 	bIsPassthrough = false;
 	
-	// Set our custom connection class for EOS P2P
+	// Force it to use your class
 	NetConnectionClass = UNetConnectionEOS::StaticClass();
+	
+	// DOUBLE CHECK: Ensure the string path matches your actual plugin name
+	NetConnectionClassName = TEXT("/Script/OnlineSubsystemEOSKit.NetConnectionEOS");
+	
+	UE_LOG(LogTemp, Warning, TEXT("✅ UNetDriverEOS: CONSTRUCTOR - Set NetConnectionClass to UNetConnectionEOS: %s"), 
+		*NetConnectionClass->GetName());
 	
 #if ENGINE_MAJOR_VERSION >= 5 && ENGINE_MINOR_VERSION >= 6
 	// Check for deprecated config in UE 5.6+

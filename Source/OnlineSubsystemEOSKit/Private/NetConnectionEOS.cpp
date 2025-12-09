@@ -22,6 +22,7 @@ UNetConnectionEOS::UNetConnectionEOS(const FObjectInitializer& ObjectInitializer
 	, bIsPassthrough(false)
 	, bHasP2PSession(false)
 {
+	UE_LOG(LogTemp, Warning, TEXT("✅ UNetConnectionEOS: CONSTRUCTOR CALLED! I am the active connection class."));
 }
 
 void UNetConnectionEOS::InitLocalConnection(UNetDriver* InDriver, FSocket* InSocket, const FURL& InURL, EConnectionState InState, int32 InMaxPacket, int32 InPacketOverhead)
@@ -205,18 +206,23 @@ bool UNetConnectionEOS::LowLevelValidateRemoteUniqueId(FUniqueNetIdRepl& UniqueI
 	// which fails for EOS P2P because the "address" is a ProductUserId string, not an IP address.
 	// EOS P2P socket authentication already handles security, so we trust valid EOS IDs.
 	
-	if (bHasP2PSession && UniqueId.IsValid())
+	UE_LOG(LogTemp, Warning, TEXT("✅ UNetConnectionEOS::LowLevelValidateRemoteUniqueId: CALLED! Validating ID - IsValid: %d, bHasP2PSession: %d"), 
+		UniqueId.IsValid() ? 1 : 0, bHasP2PSession ? 1 : 0);
+	
+	if (UniqueId.IsValid())
 	{
-		// For EOS P2P connections, if the UniqueId is valid, we trust the EOS P2P socket authentication
-		// EOS P2P already validated the connection, so we can bypass IP-based validation
-		UE_LOG(LogNet, Verbose, TEXT("UNetConnectionEOS::LowLevelValidateRemoteUniqueId: ✅ Bypassing IP validation for EOS P2P connection (UniqueId is valid)"));
+		// Access the underlying UniqueNetId using operator* (returns reference)
+		const FUniqueNetId& UniqueNetId = *UniqueId;
+		FString UniqueIdStr = UniqueNetId.ToString();
+		UE_LOG(LogTemp, Warning, TEXT("✅ UNetConnectionEOS::LowLevelValidateRemoteUniqueId: Validating ID: %s"), *UniqueIdStr);
+		
+		// If it is valid, we TRUST EOS. We return TRUE to skip the IP check.
+		UE_LOG(LogTemp, Warning, TEXT("✅ UNetConnectionEOS::LowLevelValidateRemoteUniqueId: Returning TRUE - bypassing IP validation"));
 		return true;
 	}
 	
-	// For non-EOS connections, fall back to standard validation
-	// Since the parent method doesn't exist, we just return true for valid IDs
-	// This allows non-EOS connections to work normally
-	return UniqueId.IsValid();
+	UE_LOG(LogTemp, Warning, TEXT("❌ UNetConnectionEOS::LowLevelValidateRemoteUniqueId: UniqueId is INVALID - returning false"));
+	return false;
 }
 
 void UNetConnectionEOS::DestroyEOSConnection()

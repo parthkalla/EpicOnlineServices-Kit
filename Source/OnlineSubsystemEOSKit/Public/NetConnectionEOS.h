@@ -24,7 +24,7 @@ public:
 protected:
 	// Override to bypass IP-based validation for EOS P2P connections
 	// This method is called during PreLogin validation to check if the remote UniqueNetId is valid
-	// Note: Method name may vary by UE version - try LowLevelValidateRemoteUniqueId first
+	// Note: This method may not exist in base class, so we declare it without override
 	virtual bool LowLevelValidateRemoteUniqueId(FUniqueNetIdRepl& UniqueId);
 
 	void DestroyEOSConnection();
