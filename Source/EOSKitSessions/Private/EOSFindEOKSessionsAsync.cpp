@@ -7,9 +7,9 @@
 #include "UObject/UObjectGlobals.h"
 #include "UObject/UnrealType.h"
 
-// SEARCH_LOBBIES constant (defined in OnlineSessionSettings.h in Unreal Engine)
+// SEARCH_LOBBIES constant (must match OnlineSessionEOSKit.cpp definition)
 #ifndef SEARCH_LOBBIES
-static const FName SEARCH_LOBBIES(TEXT("SEARCH_LOBBIES"));
+static const FName SEARCH_LOBBIES(TEXT("EOSLobby"));
 #endif
 
 UEOSFindEOKSessionsAsync* UEOSFindEOKSessionsAsync::FindEOKSessions(
