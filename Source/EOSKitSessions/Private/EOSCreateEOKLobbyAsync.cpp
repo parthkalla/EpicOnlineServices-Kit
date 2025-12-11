@@ -11,6 +11,11 @@
 #endif
 #include "Async/Async.h"
 
+// Define EOS_OSS_STRING_BUFFER_LENGTH if not already defined (matches EIK)
+#ifndef EOS_OSS_STRING_BUFFER_LENGTH
+#define EOS_OSS_STRING_BUFFER_LENGTH 256 + 1 // 256 plus null terminator
+#endif
+
 // Context struct to keep data alive during async operation
 struct FEOKLobbyCreateContext
 {
@@ -115,7 +120,7 @@ void UEOSCreateEOKLobbyAsync::CreateLobby()
 	Context->AsyncNode = this;
 	Context->SessionName = VSessionName.ToString();
 
-	FString EffectiveBucketId = Var_CreateLobbySettings.BucketId.IsEmpty() ? TEXT("MyGameBucket") : Var_CreateLobbySettings.BucketId;
+	FString EffectiveBucketId = Var_CreateLobbySettings.BucketId.IsEmpty() ? TEXT("DefaultBucket") : Var_CreateLobbySettings.BucketId;
 	UE_LOG(LogTemp, Log, TEXT("EOSKit: CreateLobby - Using BucketId: %s"), *EffectiveBucketId);
 
 	FTCHARToUTF8 BucketIdConverter(*EffectiveBucketId);
@@ -195,10 +200,112 @@ void UEOSCreateEOKLobbyAsync::CreateLobby()
 					}
 					UE_LOG(LogTemp, Log, TEXT("EOSKit: ========================================"));
 
+					// Broadcast success immediately (lobby is created and usable)
 					if (AsyncNode)
 					{
 						AsyncNode->OnSuccess.Broadcast(Context->LobbyId);
 						AsyncNode->FinishAndCleanup();
+					}
+
+					// CRITICAL: Update the lobby immediately after creation to add SEARCH_LOBBIES attribute (like EIK does)
+					// This ensures the lobby can be found by searches. Do this AFTER broadcasting success so the user can proceed.
+					if (!Context->LobbyId.IsEmpty())
+					{
+						UGameInstance* GameInstance = UGameplayStatics::GetGameInstance(AsyncNode->CachedWorldContextObject);
+						if (GameInstance)
+						{
+							UEOSKitSubsystem* EOSKitSubsystem = GameInstance->GetSubsystem<UEOSKitSubsystem>();
+							if (EOSKitSubsystem && EOSKitSubsystem->GetPlatformHandle())
+							{
+								EOS_HPlatform PlatformHandle = EOSKitSubsystem->GetPlatformHandle();
+								EOS_HLobby LobbyHandle = EOS_Platform_GetLobbyInterface(PlatformHandle);
+								EOS_ProductUserId LocalUserId = EOSKitSubsystem->GetProductUserId();
+
+								if (LobbyHandle && EOS_ProductUserId_IsValid(LocalUserId))
+								{
+									// Update lobby modification to add SEARCH_LOBBIES attribute
+									EOS_Lobby_UpdateLobbyModificationOptions UpdateLobbyModificationOptions = { 0 };
+									UpdateLobbyModificationOptions.ApiVersion = EOS_LOBBY_UPDATELOBBYMODIFICATION_API_LATEST;
+									const FTCHARToUTF8 Utf8LobbyId(*Context->LobbyId);
+									UpdateLobbyModificationOptions.LobbyId = (EOS_LobbyId)Utf8LobbyId.Get();
+									UpdateLobbyModificationOptions.LocalUserId = LocalUserId;
+
+									EOS_HLobbyModification LobbyModificationHandle;
+									EOS_EResult LobbyModificationResult = EOS_Lobby_UpdateLobbyModification(LobbyHandle, &UpdateLobbyModificationOptions, &LobbyModificationHandle);
+									
+									if (LobbyModificationResult == EOS_EResult::EOS_Success)
+									{
+										// Add PRESENCESEARCH attribute
+										EOS_Lobby_AttributeData PresenceSearchAttribute = { 0 };
+										PresenceSearchAttribute.ApiVersion = EOS_LOBBY_ATTRIBUTEDATA_API_LATEST;
+										PresenceSearchAttribute.ValueType = EOS_ELobbyAttributeType::EOS_SAT_Boolean;
+										PresenceSearchAttribute.Value.AsBool = EOS_TRUE;
+										char PresenceSearchKey[EOS_OSS_STRING_BUFFER_LENGTH];
+										FCStringAnsi::Strncpy(PresenceSearchKey, "PRESENCESEARCH", EOS_OSS_STRING_BUFFER_LENGTH);
+										PresenceSearchAttribute.Key = PresenceSearchKey;
+
+										EOS_LobbyModification_AddAttributeOptions AddPresenceSearchOptions = { 0 };
+										AddPresenceSearchOptions.ApiVersion = EOS_LOBBYMODIFICATION_ADDATTRIBUTE_API_LATEST;
+										AddPresenceSearchOptions.Visibility = EOS_ELobbyAttributeVisibility::EOS_LAT_PUBLIC;
+										AddPresenceSearchOptions.Attribute = &PresenceSearchAttribute;
+										EOS_LobbyModification_AddAttribute(LobbyModificationHandle, &AddPresenceSearchOptions);
+
+										// CRITICAL: Add SEARCH_LOBBIES attribute (required for lobby searches)
+										EOS_Lobby_AttributeData SearchLobbiesAttribute = { 0 };
+										SearchLobbiesAttribute.ApiVersion = EOS_LOBBY_ATTRIBUTEDATA_API_LATEST;
+										SearchLobbiesAttribute.ValueType = EOS_ELobbyAttributeType::EOS_SAT_Boolean;
+										SearchLobbiesAttribute.Value.AsBool = EOS_TRUE;
+										char SearchLobbiesKey[EOS_OSS_STRING_BUFFER_LENGTH];
+										FCStringAnsi::Strncpy(SearchLobbiesKey, "SEARCH_LOBBIES", EOS_OSS_STRING_BUFFER_LENGTH);
+										SearchLobbiesAttribute.Key = SearchLobbiesKey;
+
+										EOS_LobbyModification_AddAttributeOptions AddSearchLobbiesOptions = { 0 };
+										AddSearchLobbiesOptions.ApiVersion = EOS_LOBBYMODIFICATION_ADDATTRIBUTE_API_LATEST;
+										AddSearchLobbiesOptions.Visibility = EOS_ELobbyAttributeVisibility::EOS_LAT_PUBLIC;
+										AddSearchLobbiesOptions.Attribute = &SearchLobbiesAttribute;
+										EOS_EResult AddAttrResult = EOS_LobbyModification_AddAttribute(LobbyModificationHandle, &AddSearchLobbiesOptions);
+										
+										if (AddAttrResult == EOS_EResult::EOS_Success)
+										{
+											UE_LOG(LogTemp, Log, TEXT("EOSKit: Added SEARCH_LOBBIES attribute to lobby - updating now..."));
+											
+											// Update the lobby (Context will be deleted after this callback completes)
+											EOS_Lobby_UpdateLobbyOptions UpdateLobbyOptions = { 0 };
+											UpdateLobbyOptions.ApiVersion = EOS_LOBBY_UPDATELOBBY_API_LATEST;
+											UpdateLobbyOptions.LobbyModificationHandle = LobbyModificationHandle;
+
+											EOS_Lobby_UpdateLobby(LobbyHandle, &UpdateLobbyOptions, Context, 
+												[](const EOS_Lobby_UpdateLobbyCallbackInfo* UpdateData)
+												{
+													if (UpdateData->ResultCode == EOS_EResult::EOS_Success || UpdateData->ResultCode == EOS_EResult::EOS_Sessions_OutOfSync)
+													{
+														UE_LOG(LogTemp, Log, TEXT("EOSKit: ✅ Lobby update successful - SEARCH_LOBBIES attribute added"));
+													}
+													else
+													{
+														UE_LOG(LogTemp, Warning, TEXT("EOSKit: ⚠️ Lobby update failed with code %s (lobby created but may not be searchable)"), 
+															UTF8_TO_TCHAR(EOS_EResult_ToString(UpdateData->ResultCode)));
+													}
+													// Note: Context is managed by the main callback, not here
+												});
+
+											EOS_LobbyModification_Release(LobbyModificationHandle);
+										}
+										else
+										{
+											UE_LOG(LogTemp, Warning, TEXT("EOSKit: ⚠️ Failed to add SEARCH_LOBBIES attribute: %s"), 
+												UTF8_TO_TCHAR(EOS_EResult_ToString(AddAttrResult)));
+											EOS_LobbyModification_Release(LobbyModificationHandle);
+										}
+									}
+									else
+									{
+										UE_LOG(LogTemp, Warning, TEXT("EOSKit: ⚠️ Failed to create lobby modification: %s (lobby created but may not be searchable)"), 
+											UTF8_TO_TCHAR(EOS_EResult_ToString(LobbyModificationResult)));
+									}
+								}
+							}
+						}
 					}
 				}
 				else

@@ -94,7 +94,7 @@ void UEOSCreateLobbyAsync::Activate()
 	FCreateLobbyContext* Context = new FCreateLobbyContext();
 	Context->AsyncNode = this;
 
-	FString EffectiveBucketId = BucketId.IsEmpty() ? TEXT("MyGameBucket") : BucketId;
+	FString EffectiveBucketId = BucketId.IsEmpty() ? TEXT("DefaultBucket") : BucketId;
 	UE_LOG(LogTemp, Log, TEXT("EOSKit: CreateLobby - Using BucketId: %s"), *EffectiveBucketId);
 
 	FTCHARToUTF8 BucketIdConverter(*EffectiveBucketId);
