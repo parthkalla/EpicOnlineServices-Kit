@@ -15,6 +15,13 @@
 #include "eos_init.h"
 #include "eos_logging.h"
 #include "eos_types.h"
+// Note: EOS_Platform_RTCOptions is defined in eos_types.h, no need for eos_rtc.h here
+
+#if PLATFORM_WINDOWS
+#include "Windows/AllowWindowsPlatformTypes.h"
+#include "Windows/eos_Windows.h"
+#include "Windows/HideWindowsPlatformTypes.h"
+#endif
 #endif
 
 DEFINE_LOG_CATEGORY_STATIC(LogEOSSDKManager, Log, All);
@@ -214,6 +221,45 @@ bool FEOSSDKManager::CreatePlatform()
 	PlatformOptions.EncryptionKey = EncryptionKey.Get();
 	PlatformOptions.TickBudgetInMilliseconds = TickBudgetMs;
 	PlatformOptions.Flags = PlatformFlags;
+
+	// Enable RTC (Real-Time Communication) for voice chat support
+	// This allows lobbies to have RTC rooms for voice communication
+	// Note: RTC is optional - if XAudio DLL is not found, we skip RTC to avoid platform creation failures
+	EOS_Platform_RTCOptions RtcOptions = { 0 };
+	RtcOptions.ApiVersion = EOS_PLATFORM_RTCOPTIONS_API_LATEST;
+	bool bRTCEnabled = false;
+	
+	// Windows-specific RTC options (XAudio2_9 DLL path)
+#if PLATFORM_WINDOWS
+	static EOS_Windows_RTCOptions WindowsRTCOptions = { 0 };
+	WindowsRTCOptions.ApiVersion = EOS_WINDOWS_RTCOPTIONS_API_LATEST;
+	
+	// Get XAudio2_9 DLL path from engine
+	const FString XAudioPath = FPaths::Combine(FPaths::EngineDir(), TEXT("Binaries/ThirdParty/Windows/XAudio2_9"), 
+		PLATFORM_64BITS ? TEXT("x64") : TEXT("x86"), TEXT("xaudio2_9redist.dll"));
+	const FString XAudioAbsolutePath = IFileManager::Get().ConvertToAbsolutePathForExternalAppForRead(*XAudioPath);
+	
+	if (FPaths::FileExists(XAudioAbsolutePath))
+	{
+		static FTCHARToUTF8 Utf8XAudioPath(*XAudioAbsolutePath);
+		WindowsRTCOptions.XAudio29DllPath = Utf8XAudioPath.Get();
+		RtcOptions.PlatformSpecificOptions = &WindowsRTCOptions;
+		bRTCEnabled = true;
+		UE_LOG(LogEOSSDKManager, Log, TEXT("EOSKit: RTC enabled with XAudio2_9 path: %s"), *XAudioAbsolutePath);
+	}
+	else
+	{
+		UE_LOG(LogEOSSDKManager, Warning, TEXT("EOSKit: XAudio2_9 DLL not found at %s, RTC disabled (voice chat will not work)"), *XAudioAbsolutePath);
+		RtcOptions.PlatformSpecificOptions = nullptr;
+		bRTCEnabled = false;
+	}
+#else
+	RtcOptions.PlatformSpecificOptions = nullptr;
+	bRTCEnabled = true; // Enable RTC on non-Windows platforms (they don't need XAudio)
+#endif
+	
+	// Only set RTCOptions if RTC is properly configured
+	PlatformOptions.RTCOptions = bRTCEnabled ? &RtcOptions : nullptr;
 
 	// Log overlay configuration
 	UE_LOG(LogEOSSDKManager, Log, TEXT("EOSKit: Overlay settings - Overlay: %s, Social Overlay: %s, Editor Overlay: %s, Flags: 0x%llX"), 

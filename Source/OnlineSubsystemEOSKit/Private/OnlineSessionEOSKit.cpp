@@ -20,9 +20,13 @@
 
 #if WITH_EOS_SDK
 
+#include "eos_sdk.h"
 #include "eos_lobby.h"
 #include "eos_lobby_types.h"
 #include "eos_sessions_types.h"
+#if WITH_EOS_RTC
+#include "eos_rtc.h"
+#endif
 #include "Misc/Guid.h"
 #include "Kismet/GameplayStatics.h"
 #include "Async/Async.h"
@@ -3102,7 +3106,26 @@ uint32 FOnlineSessionEOSKit::CreateLobbySession(int32 HostingPlayerNum, FNamedOn
 	CreateLobbyOptions.BucketId = BucketIdAnsi;
 	CreateLobbyOptions.bDisableHostMigration = !bUseHostMigration;
 #if WITH_EOS_RTC
-	CreateLobbyOptions.bEnableRTCRoom = Session->SessionSettings.bUseLobbiesVoiceChatIfAvailable;
+	// Check if RTC is available before enabling RTC room
+	// RTC must be enabled in platform configuration (RTCOptions) for this to work
+	bool bRTCAvailable = false;
+	if (EOSKitSubsystem && EOSKitSubsystem->EOSPlatformHandle)
+	{
+		EOS_HRTC RTCHandle = EOS_Platform_GetRTCInterface(*EOSKitSubsystem->EOSPlatformHandle);
+		bRTCAvailable = (RTCHandle != nullptr);
+	}
+	
+	bool bRequestedVoiceChat = Session->SessionSettings.bUseLobbiesVoiceChatIfAvailable;
+	
+	if (bRequestedVoiceChat && !bRTCAvailable)
+	{
+		UE_LOG_ONLINE_SESSION(Warning, TEXT("[FOnlineSessionEOSKit::CreateLobbySession] Voice chat requested but RTC is not enabled in platform configuration. Disabling RTC room."));
+		UE_LOG_ONLINE_SESSION(Warning, TEXT("[FOnlineSessionEOSKit::CreateLobbySession] To enable voice chat, RTC must be enabled when creating the EOS platform (RTCOptions must be set)."));
+	}
+	
+	CreateLobbyOptions.bEnableRTCRoom = (bRequestedVoiceChat && bRTCAvailable) ? EOS_TRUE : EOS_FALSE;
+#else
+	CreateLobbyOptions.bEnableRTCRoom = EOS_FALSE;
 #endif
 
 	FString SessionIdOverride;

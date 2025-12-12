@@ -7,6 +7,7 @@
 #include "Windows/AllowWindowsPlatformTypes.h"
 #include "eos_sdk.h"
 #include "eos_lobby.h"
+#include "eos_rtc.h"  // RTC interface is part of EOS SDK, available if SDK is available
 #include "Windows/HideWindowsPlatformTypes.h"
 #endif
 #include "Async/Async.h"
@@ -138,7 +139,20 @@ void UEOSCreateEOKLobbyAsync::CreateLobby()
 	CreateLobbyOptions.BucketId = (const char*)Context->BucketIdUTF8.GetData();
 	CreateLobbyOptions.bDisableHostMigration = Var_CreateLobbySettings.bSupportHostMigration ? EOS_FALSE : EOS_TRUE;
 	CreateLobbyOptions.bEnableJoinById = Var_CreateLobbySettings.bEnableJoinViaId ? EOS_TRUE : EOS_FALSE;
-	CreateLobbyOptions.bEnableRTCRoom = Var_CreateLobbySettings.bUseVoiceChat ? EOS_TRUE : EOS_FALSE;
+	
+	// Check if RTC is available before enabling RTC room
+	// RTC must be enabled in platform configuration (RTCOptions) for this to work
+	EOS_HRTC RTCHandle = EOS_Platform_GetRTCInterface(PlatformHandle);
+	bool bRTCAvailable = (RTCHandle != nullptr);
+	bool bRequestedVoiceChat = Var_CreateLobbySettings.bUseVoiceChat;
+	
+	if (bRequestedVoiceChat && !bRTCAvailable)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("EOSKit: WARNING - Voice chat requested but RTC is not enabled in platform configuration. Disabling RTC room."));
+		UE_LOG(LogTemp, Warning, TEXT("EOSKit: To enable voice chat, RTC must be enabled when creating the EOS platform (RTCOptions must be set)."));
+	}
+	
+	CreateLobbyOptions.bEnableRTCRoom = (bRequestedVoiceChat && bRTCAvailable) ? EOS_TRUE : EOS_FALSE;
 
 	UE_LOG(LogTemp, Log, TEXT("EOSKit: CreateLobby - Final Settings:"));
 	UE_LOG(LogTemp, Log, TEXT("  MaxLobbyMembers: %d"), CreateLobbyOptions.MaxLobbyMembers);
@@ -146,6 +160,10 @@ void UEOSCreateEOKLobbyAsync::CreateLobby()
 	UE_LOG(LogTemp, Log, TEXT("  bPresenceEnabled: %s"), CreateLobbyOptions.bPresenceEnabled ? TEXT("true") : TEXT("false"));
 	UE_LOG(LogTemp, Log, TEXT("  bAllowInvites: %s"), CreateLobbyOptions.bAllowInvites ? TEXT("true") : TEXT("false"));
 	UE_LOG(LogTemp, Log, TEXT("  BucketId: %s"), *EffectiveBucketId);
+	UE_LOG(LogTemp, Log, TEXT("  bEnableRTCRoom: %s (RTC Available: %s, Requested: %s)"), 
+		CreateLobbyOptions.bEnableRTCRoom ? TEXT("true") : TEXT("false"),
+		bRTCAvailable ? TEXT("true") : TEXT("false"),
+		bRequestedVoiceChat ? TEXT("true") : TEXT("false"));
 
 	EOS_Lobby_CreateLobby(LobbyHandle, &CreateLobbyOptions, Context,
 		[](const EOS_Lobby_CreateLobbyCallbackInfo* Data)
