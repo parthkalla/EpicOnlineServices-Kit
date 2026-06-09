@@ -1,1 +1,25 @@
-_codeql_detected_source_root
+﻿# Unreal build artifacts
+Binaries/
+Intermediate/
+Saved/
+DerivedDataCache/
+.vs/
+.idea/
+
+# Third-party SDK payloads (see THIRD_PARTY_SETUP.md)
+Source/ThirdParty/**/Bin/
+Source/ThirdParty/**/Lib/
+Source/ThirdParty/**/Include/
+Source/ThirdParty/**/Tools/
+Source/ThirdParty/**/Android/
+Source/ThirdParty/**/IOS/
+Source/ThirdParty/**/*.aar
+Source/ThirdParty/**/*.dll
+Source/ThirdParty/**/*.lib
+Source/ThirdParty/**/*.so
+Source/ThirdParty/**/*.dylib
+Source/ThirdParty/**/*.framework/
+Source/ThirdParty/**/*.xcframework/
+
+.DS_Store
+Thumbs.db

@@ -1,0 +1,41 @@
+﻿// Copyright (c) 2023 Betide Studio. All Rights Reserved.
+
+
+#include "EOK_API_TokenBasedOwnershipVerification.h"
+
+UEOK_API_TokenBasedOwnershipVerification* UEOK_API_TokenBasedOwnershipVerification::TokenBasedOwnershipVerification(FString AuthorizationToken, FString Platform, FString IdentityId, TMap<FString, FString> CatalogItemId)
+{
+	UEOK_API_TokenBasedOwnershipVerification* Node = NewObject<UEOK_API_TokenBasedOwnershipVerification>();
+	Node->Var_Platform = Platform;
+	Node->Var_IdentityId = IdentityId;
+	Node->Var_CatalogItemId = CatalogItemId;
+	Node->Var_Authorization = AuthorizationToken;
+	return Node;
+}
+
+void UEOK_API_TokenBasedOwnershipVerification::Activate()
+{
+	Super::Activate();
+	FString URL = FString::Printf(TEXT("%s/epic/ecom/v3/platforms/%s/identities/%s/ownershipToken"), *APIEndpoint, *Var_Platform, *Var_IdentityId);
+	TSharedRef<IHttpRequest, ESPMode::ThreadSafe> HttpRequest = FHttpModule::Get().CreateRequest();
+	HttpRequest->SetVerb(TEXT("POST"));
+	HttpRequest->SetURL(URL);
+	HttpRequest->SetHeader(TEXT("Content-Type"), TEXT("application/x-www-form-urlencoded"));
+	if(Var_Authorization.Contains("Bearer"))
+	{
+		HttpRequest->SetHeader(TEXT("Authorization"), Var_Authorization);
+	}
+	else
+	{
+		HttpRequest->SetHeader(TEXT("Authorization"), FString::Printf(TEXT("Bearer %s"), *Var_Authorization));
+	}
+	FString PostParameters;
+	for (auto& Elem : Var_CatalogItemId)
+	{
+		PostParameters.Append(FString::Printf(TEXT("%s=%s&"), *Elem.Key, *Elem.Value));
+	}
+	HttpRequest->SetContentAsString(PostParameters);
+	HttpRequest->OnProcessRequestComplete().BindUObject(this, &UEOK_API_TokenBasedOwnershipVerification::OnResponseReceived);
+	HttpRequest->ProcessRequest();
+}
+	

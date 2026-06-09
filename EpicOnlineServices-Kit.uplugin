@@ -1,0 +1,152 @@
+{
+	"MarketplaceURL": "",
+	"VersionName": "1.0",
+	"Modules": [
+		{
+			"PlatformAllowList": [
+				"Win64",
+				"Android",
+				"Mac",
+				"Linux"
+			],
+			"Name": "EpicOnlineServicesKitV2",
+			"Type": "Runtime",
+			"LoadingPhase": "Default",
+			"PlatformDenyList": [
+				"IOS"
+			]
+		},
+		{
+			"PlatformAllowList": [
+				"Win64",
+				"Android",
+				"Mac",
+				"Linux"
+			],
+			"Name": "SocketSubsystemEOK",
+			"Type": "Runtime",
+			"LoadingPhase": "Default",
+			"PlatformDenyList": [
+				"IOS"
+			]
+		},
+		{
+			"PlatformAllowList": [
+				"Win64",
+				"Android",
+				"Mac",
+				"Linux"
+			],
+			"Name": "OnlineSubsystemEOK",
+			"Type": "Runtime",
+			"LoadingPhase": "Default",
+			"PlatformDenyList": [
+				"IOS"
+			]
+		},
+		{
+			"PlatformAllowList": [
+				"Win64",
+				"Android",
+				"Mac",
+				"Linux"
+			],
+			"Name": "EOKVoiceChat",
+			"Type": "ClientOnlyNoCommandlet",
+			"LoadingPhase": "Default",
+			"PlatformDenyList": [
+				"IOS"
+			]
+		},
+		{
+			"PlatformAllowList": [
+				"Win64",
+				"Android",
+				"Mac",
+				"Linux"
+			],
+			"Name": "EOKShared",
+			"Type": "Runtime",
+			"LoadingPhase": "Default",
+			"PlatformDenyList": [
+				"IOS"
+			]
+		},
+		{
+			"PlatformAllowList": [
+				"Win64",
+				"Android",
+				"Mac",
+				"Linux"
+			],
+			"Name": "EOKLoginMethods",
+			"Type": "Runtime",
+			"LoadingPhase": "Default",
+			"PlatformDenyList": [
+				"IOS"
+			]
+		},
+		{
+			"PlatformAllowList": [
+				"Win64",
+				"Mac",
+				"Linux"
+			],
+			"Name": "EOKEditor",
+			"Type": "Editor",
+			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "DiscordGame",
+			"PlatformAllowList": [
+				"Win64"
+			],
+			"Type": "Runtime",
+			"LoadingPhase": "PostDefault",
+			"PlatformDenyList": [
+				"Mac",
+				"IOS",
+				"Linux",
+				"Android"
+			]
+		},
+		{
+			"PlatformAllowList": [
+				"Win64",
+				"Android",
+				"Mac",
+				"Linux"
+			],
+			"Name": "EOKWeb",
+			"Type": "Runtime",
+			"LoadingPhase": "Default",
+			"PlatformDenyList": [
+				"IOS"
+			]
+		}
+	],
+	"Version": 3,
+	"SupportURL": "https://discord.gg/c5jGEk2mxA",
+	"Description": "EOK (Epic Online Services Kit) is a plugin that enables seamless integration between Epic Online Services (EOS) and Unreal Engine. The plugin provides access to the EOS SDK (Software Development Kit) within Unreal Engine, allowing developers to easily implement features such as matchmaking, achievements, leaderboards, and more.",
+	"CreatedByURL": "https://asrockstudios.in/",
+	"DocsURL": "https://eok.asrockstudios.in/",
+	"CreatedBy": "Asrock Studios",
+	"CanContainContent": true,
+	"FriendlyName": "Epic Online Services-Kit",
+	"IsExperimentalVersion": false,
+	"Plugins": [
+		{
+			"Name": "OnlineSubsystemUtils",
+			"Enabled": true
+		},
+		{
+			"Name": "Synthesis",
+			"Enabled": true
+		}
+	],
+	"IsBetaVersion": false,
+	"EngineVersion": "5.4",
+	"Installed": true,
+	"Category": "Asrock Studios",
+	"FileVersion": 3
+}
